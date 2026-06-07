@@ -1,0 +1,1810 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบบริการหลังการขาย - บริษัท เมดิคอลเอ็นจิเนียริ่งเซอร์วิส จำกัด</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- NOTIFICATION DROPDOWN -->
+<div class="notification-dropdown" id="notification-dropdown">
+  <div class="notif-header">
+    <h4>การแจ้งเตือนระบบ</h4>
+    <button class="btn btn-xs btn-secondary" onclick="markAllNotifRead()">อ่านทั้งหมด</button>
+  </div>
+  <div class="notif-list" id="notif-list-items">
+    <div class="notif-empty">กำลังโหลด...</div>
+  </div>
+</div>
+
+<!-- ==================== LOGIN VIEW ==================== -->
+<div id="view-login" class="login-container">
+  <div class="login-card">
+    <!-- Logo -->
+    <div style="margin-bottom:28px;display:flex;flex-direction:column;align-items:center;gap:12px;">
+      <img src="logo.png" alt="MES Logo" style="max-height:140px;width:auto;max-width:260px;object-fit:contain;filter:brightness(1.1);">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="height:1px;width:40px;background:rgba(255,255,255,.15);"></div>
+        <span style="font-size:.7rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,.35);">Medical Engineering Service</span>
+        <div style="height:1px;width:40px;background:rgba(255,255,255,.15);"></div>
+      </div>
+    </div>
+    <div style="font-weight:700;color:rgba(255,255,255,.9);font-size:1.05rem;margin-bottom:6px;">ระบบบริหารงานบริการหลังการขาย</div>
+    <div style="font-size:.78rem;color:rgba(255,255,255,.4);margin-bottom:28px;">กรุณาเข้าสู่ระบบเพื่อดำเนินการ</div>
+    <form id="login-form">
+      <div class="form-group" style="text-align:left;">
+        <label class="form-label" style="color:rgba(255,255,255,.65);">ชื่อผู้ใช้งาน (Username)</label>
+        <input type="text" id="login-username" class="form-control" placeholder="ระบุชื่อผู้ใช้งาน..." required style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12);color:#fff;">
+      </div>
+      <div class="form-group" style="text-align:left;margin-bottom:24px;">
+        <label class="form-label" style="color:rgba(255,255,255,.65);">รหัสผ่าน (Password)</label>
+        <input type="password" id="login-password" class="form-control" placeholder="ระบุรหัสผ่าน..." required style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12);color:#fff;">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;padding:13px;justify-content:center;background:linear-gradient(135deg,#6366f1,#4f46e5);box-shadow:0 6px 24px rgba(99,102,241,.4);">เข้าสู่ระบบ</button>
+    </form>
+    <div style="margin-top:20px;border-top:1px solid rgba(255,255,255,.08);padding-top:18px;">
+      <span style="font-size:.75rem;color:rgba(255,255,255,.3);display:block;margin-bottom:10px;">ทางลัดสำหรับทดสอบ (Quick Login)</span>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button class="btn btn-sm" onclick="quickLogin('manager')"          style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">👔 ผู้จัดการ</button>
+        <button class="btn btn-sm" onclick="quickLogin('supervisor')"        style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">🔑 หัวหน้างาน</button>
+        <button class="btn btn-sm" onclick="quickLogin('engineer_north')"    style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">🔧 ช่างภาคเหนือ</button>
+        <button class="btn btn-sm" onclick="quickLogin('engineer_central')"  style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">🔧 ช่างภาคกลาง</button>
+        <button class="btn btn-sm" onclick="quickLogin('engineer_east')"     style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">🔧 ช่างภาคตะวันออก</button>
+        <button class="btn btn-sm" onclick="quickLogin('warehouse')"         style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">📦 คลังสินค้า</button>
+        <button class="btn btn-sm" onclick="quickLogin('admin')"             style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">⚙️ ธุรการ</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MAIN APP ==================== -->
+<div id="view-main" class="main-wrapper" style="display:none;">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="app-sidebar">
+    <div class="sidebar-brand">
+      <!-- Logo area - full width, centered, dark blended -->
+      <div style="display:flex;flex-direction:column;align-items:center;padding:24px 20px 20px;position:relative;">
+        <img src="logo.png" alt="MES" style="max-height:110px;width:auto;max-width:220px;object-fit:contain;filter:brightness(1.05);">
+        <div style="margin-top:10px;height:1px;width:80%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent);"></div>
+        <!-- Mobile close button -->
+        <div class="menu-trigger" onclick="toggleSidebar()" style="position:absolute;top:14px;right:14px;color:rgba(255,255,255,.4);background:rgba(255,255,255,.08);border-radius:8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;">
+          <i data-lucide="x" style="width:14px;height:14px;"></i>
+        </div>
+      </div>
+    </div>
+
+    <ul class="sidebar-menu" id="sidebar-menu-list">
+
+      <!-- SECTION: ภาพรวม -->
+      <li class="sidebar-section-header" onclick="toggleSidebarSection('sec-overview')">
+        <span>ภาพรวม</span><i data-lucide="chevron-down" class="sec-arrow" id="arrow-sec-overview"></i>
+      </li>
+      <div class="sidebar-section-body" id="sec-overview">
+        <li class="menu-item active" data-view="dashboard" onclick="switchView('dashboard')">
+          <a class="menu-link"><i data-lucide="layout-dashboard"></i>แดชบอร์ดสรุปงาน</a>
+        </li>
+        <li class="menu-item" data-view="notifications" onclick="switchView('notifications')">
+          <a class="menu-link"><i data-lucide="bell"></i>ศูนย์แจ้งเตือน <span class="menu-badge" id="sidebar-notif-badge">0</span></a>
+        </li>
+      </div>
+
+      <!-- SECTION: งานบริการ -->
+      <li class="sidebar-section-header" onclick="toggleSidebarSection('sec-service')">
+        <span>งานบริการ</span><i data-lucide="chevron-down" class="sec-arrow" id="arrow-sec-service"></i>
+      </li>
+      <div class="sidebar-section-body" id="sec-service">
+        <li class="menu-item" data-view="repair" onclick="switchView('repair')">
+          <a class="menu-link"><i data-lucide="wrench"></i>ลงทะเบียน & งานซ่อม</a>
+        </li>
+        <li class="menu-item" data-view="onsite" onclick="switchView('onsite')">
+          <a class="menu-link"><i data-lucide="navigation"></i>งาน Onsite / Oncall</a>
+        </li>
+        <li class="menu-item" data-view="pm" onclick="switchView('pm')">
+          <a class="menu-link"><i data-lucide="calendar-check"></i>แผนบำรุงรักษา PM</a>
+        </li>
+      </div>
+
+      <!-- SECTION: ข้อมูลสินทรัพย์ -->
+      <li class="sidebar-section-header" onclick="toggleSidebarSection('sec-assets')">
+        <span>ข้อมูลสินทรัพย์</span><i data-lucide="chevron-down" class="sec-arrow" id="arrow-sec-assets"></i>
+      </li>
+      <div class="sidebar-section-body" id="sec-assets">
+        <li class="menu-item" data-view="delivered" onclick="switchView('delivered')">
+          <a class="menu-link"><i data-lucide="package-check"></i>เครื่องส่งมอบลูกค้า</a>
+        </li>
+        <li class="menu-item" data-view="warehouse" onclick="switchView('warehouse')">
+          <a class="menu-link"><i data-lucide="warehouse"></i>คลังอะไหล่</a>
+        </li>
+      </div>
+
+      <!-- SECTION: Master Data -->
+      <li class="sidebar-section-header" onclick="toggleSidebarSection('sec-master')">
+        <span>Master Data</span><i data-lucide="chevron-down" class="sec-arrow" id="arrow-sec-master"></i>
+      </li>
+      <div class="sidebar-section-body" id="sec-master">
+        <li class="menu-item" data-view="master-customers" onclick="switchView('master-customers')">
+          <a class="menu-link"><i data-lucide="building-2"></i>จัดการลูกค้า</a>
+        </li>
+        <li class="menu-item" data-view="master-zones" onclick="switchView('master-zones')">
+          <a class="menu-link" style="padding-left:28px;"><i data-lucide="map"></i>เขตการขาย/บริการ</a>
+        </li>
+        <li class="menu-item" data-view="master-products" onclick="switchView('master-products')">
+          <a class="menu-link"><i data-lucide="cpu"></i>จัดการสินค้า</a>
+        </li>
+        <li class="menu-item" data-view="master-parts" onclick="switchView('master-parts')">
+          <a class="menu-link"><i data-lucide="settings-2"></i>จัดการอะไหล่</a>
+        </li>
+      </div>
+
+      <!-- SECTION: รายงาน -->
+      <li class="sidebar-section-header" onclick="toggleSidebarSection('sec-reports')">
+        <span>รายงาน</span><i data-lucide="chevron-down" class="sec-arrow" id="arrow-sec-reports"></i>
+      </li>
+      <div class="sidebar-section-body" id="sec-reports">
+        <li class="menu-item" data-view="reports" onclick="switchView('reports')">
+          <a class="menu-link"><i data-lucide="file-bar-chart"></i>ออกรายงาน & Export</a>
+        </li>
+      </div>
+
+      <!-- SECTION: ผู้ดูแลระบบ -->
+      <li class="sidebar-section-header" id="admin-section-label" onclick="toggleSidebarSection('sec-admin')">
+        <span>ผู้ดูแลระบบ</span><i data-lucide="chevron-down" class="sec-arrow" id="arrow-sec-admin"></i>
+      </li>
+      <div class="sidebar-section-body" id="sec-admin">
+        <li class="menu-item" id="menu-item-users" data-view="users" onclick="switchView('users')" style="display:none;">
+          <a class="menu-link"><i data-lucide="users"></i>จัดการผู้ใช้งาน</a>
+        </li>
+        <li class="menu-item" id="menu-item-company" data-view="company" onclick="switchView('company')" style="display:none;">
+          <a class="menu-link"><i data-lucide="building"></i>ข้อมูลบริษัท</a>
+        </li>
+      </div>
+
+    </ul>
+
+    <div class="sidebar-footer">
+      <div class="user-profile">
+        <div class="user-avatar" id="nav-avatar">ME</div>
+        <div class="user-info">
+          <div class="user-name" id="nav-fullname">กำลังโหลด...</div>
+          <div class="user-role-badge" id="nav-role">ช่างบริการ</div>
+        </div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="logout()" style="width:100%;justify-content:center;">
+        <i data-lucide="log-out"></i>ออกจากระบบ
+      </button>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="content-area">
+    <!-- TOP HEADER -->
+    <header class="top-header">
+      <div style="display:flex;align-items:center;gap:14px;">
+        <div class="menu-trigger" onclick="toggleSidebar()"><i data-lucide="menu"></i></div>
+        <div class="header-title-sec">
+          <h2 id="page-header-title">แดชบอร์ดสรุปงาน</h2>
+          <p id="page-header-sub">ระบบบริหารงานบริการหลังการขายเครื่องมือแพทย์</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span style="font-size:.75rem;color:var(--text-secondary);">สลับสิทธิ์ทดสอบ:</span>
+        <div class="role-toggle-wrapper">
+          <button class="role-btn" id="role-toggle-manager"   onclick="testRoleSwitch('manager')">Manager</button>
+          <button class="role-btn" id="role-toggle-supervisor" onclick="testRoleSwitch('supervisor')">Supervisor</button>
+          <button class="role-btn" id="role-toggle-engineer"  onclick="testRoleSwitch('engineer')">Engineer</button>
+          <button class="role-btn" id="role-toggle-admin"     onclick="testRoleSwitch('admin')">Admin</button>
+          <button class="role-btn" id="role-toggle-warehouse" onclick="testRoleSwitch('warehouse')">Warehouse</button>
+        </div>
+        <button class="notif-bell-btn" onclick="toggleNotifDropdown()" id="notif-bell-btn">
+          <i data-lucide="bell" style="width:18px;height:18px;"></i>
+          <span class="notif-bell-badge" id="notif-bell-count" style="display:none;">0</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="viewport">
+
+      <!-- ====== DASHBOARD ====== -->
+      <section id="view-section-dashboard" class="view-section active">
+        <div class="stats-grid">
+          <div class="stat-card repairs-card" id="card-tab-repairs" onclick="selectDashboardTab('repairs')">
+            <div class="stat-icon primary"><i data-lucide="wrench"></i></div>
+            <div class="stat-details"><h4>งานซ่อมทั้งหมด</h4><div class="counter" id="dash-stat-repairs">0</div></div>
+          </div>
+          <div class="stat-card onsite-card" id="card-tab-onsite" onclick="selectDashboardTab('onsite')">
+            <div class="stat-icon warning"><i data-lucide="navigation"></i></div>
+            <div class="stat-details"><h4>ONSITE / ONCALL ค้างอยู่</h4><div class="counter" id="dash-stat-onsite">0</div></div>
+          </div>
+          <div class="stat-card pm-card" id="card-tab-pm" onclick="selectDashboardTab('pm')">
+            <div class="stat-icon success"><i data-lucide="calendar"></i></div>
+            <div class="stat-details"><h4>PM เดือนนี้เรียบร้อย</h4><div class="counter" id="dash-stat-pm">0 / 0</div></div>
+          </div>
+          <div class="stat-card lowstock-card" id="card-tab-lowstock" onclick="selectDashboardTab('lowstock')">
+            <div class="stat-icon danger"><i data-lucide="alert-triangle"></i></div>
+            <div class="stat-details"><h4>อะไหล่สต็อกต่ำเตือน</h4><div class="counter" id="dash-stat-lowstock">0</div></div>
+          </div>
+        </div>
+
+        <div class="dashboard-layout">
+          <div class="panel">
+            <div class="panel-header">
+              <h3 class="panel-title" id="chart-left-title"><i data-lucide="pie-chart"></i>สัดส่วนงานซ่อมแยกตามยี่ห้อ</h3>
+            </div>
+            <div style="height:300px;position:relative;">
+              <canvas id="chart-monthly-jobs"></canvas>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <h3 class="panel-title"><i data-lucide="bar-chart-3"></i>สัดส่วนสถานะงานซ่อม</h3>
+            </div>
+            <div style="height:300px;position:relative;">
+              <canvas id="chart-job-statuses"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" id="panel-performance-view" style="display:none;">
+          <div class="panel-header">
+            <h3 class="panel-title"><i data-lucide="users"></i>ผลงานช่างรายบุคคล (Manager/Supervisor)</h3>
+            <select id="performance-user-select" class="form-control" style="min-width:240px;" onchange="loadUserPerformanceStats()"></select>
+          </div>
+          <div class="stats-grid" style="margin-bottom:20px;">
+            <div class="stat-card" style="padding:16px;">
+              <div class="stat-icon info" style="width:40px;height:40px;"><i data-lucide="clock"></i></div>
+              <div class="stat-details"><h4 style="font-size:.72rem;">กำลังดำเนินการ</h4><div class="counter" id="perf-pending-jobs" style="font-size:1.3rem;">0</div></div>
+            </div>
+            <div class="stat-card" style="padding:16px;">
+              <div class="stat-icon success" style="width:40px;height:40px;"><i data-lucide="check-circle-2"></i></div>
+              <div class="stat-details"><h4 style="font-size:.72rem;">ปิดงานเสร็จสิ้น</h4><div class="counter" id="perf-completed-jobs" style="font-size:1.3rem;">0</div></div>
+            </div>
+            <div class="stat-card" style="padding:16px;">
+              <div class="stat-icon primary" style="width:40px;height:40px;"><i data-lucide="award"></i></div>
+              <div class="stat-details"><h4 style="font-size:.72rem;">สัดส่วน Oncall สำเร็จ</h4><div class="counter" id="perf-oncall-pct" style="font-size:1.3rem;">0%</div></div>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="custom-table" id="table-user-perf-jobs">
+              <thead><tr><th>เลขที่งาน</th><th>สินค้า</th><th>โรงพยาบาล</th><th>สถานะ</th><th>วันที่รับ</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====== NOTIFICATIONS ====== -->
+      <section id="view-section-notifications" class="view-section">
+        <div class="panel-header" style="margin-bottom:20px;">
+          <div>
+            <h3 style="font-size:1.1rem;font-weight:700;">ศูนย์การแจ้งเตือนระบบ</h3>
+            <p style="font-size:.8rem;color:var(--text-muted);margin-top:4px;">รายการแจ้งเตือนที่สำคัญจากระบบอัตโนมัติ</p>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="renderNotificationsView()"><i data-lucide="refresh-cw"></i>รีเฟรช</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px;" id="notif-summary-cards">
+          <!-- Filled dynamically -->
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3 class="panel-title"><i data-lucide="alert-triangle"></i>PM ครบกำหนด / ใกล้ครบกำหนด</h3>
+          </div>
+          <div class="notif-view-grid" id="notif-pm-list"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3 class="panel-title"><i data-lucide="shield-alert"></i>ประกันใกล้หมด / หมดแล้ว</h3>
+          </div>
+          <div class="notif-view-grid" id="notif-warranty-list"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3 class="panel-title"><i data-lucide="package-x"></i>อะไหล่สต็อกต่ำกว่าเกณฑ์</h3>
+          </div>
+          <div class="notif-view-grid" id="notif-stock-list"></div>
+        </div>
+      </section>
+
+      <!-- ====== REPAIR ====== -->
+      <section id="view-section-repair" class="view-section">
+        <div class="filter-bar">
+          <div class="search-box-wrapper">
+            <i data-lucide="search"></i>
+            <input type="text" id="repair-search-input" class="form-control search-input" placeholder="ค้นหา รหัสงาน, ชื่อสินค้า, ลูกค้า..." oninput="filterRepairTable()">
+          </div>
+          <div class="filter-options">
+            <select id="repair-filter-status" class="form-control" onchange="filterRepairTable()" style="min-width:160px;">
+              <option value="">ทุกสถานะ</option>
+              <option value="registered">ลงทะเบียน</option>
+              <option value="checked">ตรวจเช็คแล้ว</option>
+              <option value="quoted">เสนอราคาแล้ว</option>
+              <option value="po_received">รับ PO แล้ว</option>
+              <option value="returned">ส่งคืนแล้ว</option>
+              <option value="closed">ปิดงานแล้ว</option>
+            </select>
+            <button class="btn btn-primary" id="btn-open-register-repair" onclick="openRegisterRepairModal()">
+              <i data-lucide="plus"></i>ลงทะเบียนรับซ่อมใหม่
+            </button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="custom-table">
+            <thead><tr><th>เลขที่งานซ่อม</th><th>สินค้า / Brand</th><th>S/N เครื่อง</th><th>ลูกค้า</th><th>วันที่รับแจ้ง</th><th>สถานะ</th><th>การจัดการ</th></tr></thead>
+            <tbody id="body-repairs"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ====== ONSITE ====== -->
+      <section id="view-section-onsite" class="view-section">
+        <div class="filter-bar">
+          <div class="search-box-wrapper">
+            <i data-lucide="search"></i>
+            <input type="text" id="onsite-search-input" class="form-control search-input" placeholder="ค้นหา เลขที่งาน, S/N, ลูกค้า..." oninput="filterOnsiteTable()">
+          </div>
+          <div class="filter-options">
+            <select id="onsite-filter-status" class="form-control" onchange="filterOnsiteTable()" style="min-width:140px;">
+              <option value="">ทุกสถานะ</option>
+              <option value="assigned">จ่ายงานแล้ว</option>
+              <option value="closed">ปิดงานแล้ว</option>
+            </select>
+            <select id="onsite-filter-type" class="form-control" onchange="filterOnsiteTable()" style="min-width:120px;">
+              <option value="">ทุกประเภท</option>
+              <option value="oncall">Oncall</option>
+              <option value="onsite">Onsite</option>
+            </select>
+            <button class="btn btn-primary" id="btn-open-register-onsite" onclick="openRegisterOnsiteModal()">
+              <i data-lucide="plus"></i>แจ้งงาน Onsite/Oncall
+            </button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="custom-table">
+            <thead><tr><th>เลขที่งาน</th><th>S/N เครื่อง</th><th>สินค้า</th><th>ลูกค้า / เขต</th><th>ช่าง</th><th>ประเภท</th><th>สถานะ</th><th>จัดการ</th></tr></thead>
+            <tbody id="body-onsite"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ====== PM ====== -->
+      <section id="view-section-pm" class="view-section">
+
+        <!-- Month Navigator -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button class="btn btn-secondary btn-sm btn-icon-only" onclick="pmNavigateMonth(-1)" title="เดือนก่อน">
+              <i data-lucide="chevron-left"></i>
+            </button>
+            <div style="text-align:center;min-width:180px;">
+              <div id="pm-month-label" style="font-size:1.2rem;font-weight:800;color:#0f172a;font-family:'Outfit',sans-serif;"></div>
+              <div id="pm-month-sub" style="font-size:.75rem;color:var(--text-muted);margin-top:2px;"></div>
+            </div>
+            <button class="btn btn-secondary btn-sm btn-icon-only" onclick="pmNavigateMonth(1)" title="เดือนถัดไป">
+              <i data-lucide="chevron-right"></i>
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="pmGoToday()" id="pm-today-btn">
+              <i data-lucide="calendar"></i>เดือนนี้
+            </button>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="month" id="pm-month-picker" class="form-control" style="min-width:170px;" onchange="pmJumpToMonth(this.value)">
+            <select id="pm-filter-status" class="form-control" onchange="filterPmTable()" style="min-width:160px;">
+              <option value="">สถานะทั้งหมด</option>
+              <option value="pending">ค้างดำเนินการ</option>
+              <option value="completed">เสร็จสิ้นแล้ว</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="stats-grid" style="margin-bottom:20px;" id="pm-summary-cards">
+          <!-- Filled by JS -->
+        </div>
+
+        <!-- Overdue Section (งานค้างเดือนก่อน) -->
+        <div id="pm-overdue-section" style="display:none;margin-bottom:20px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:8px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:var(--radius-md);padding:10px 16px;">
+              <i data-lucide="alert-triangle" style="width:16px;height:16px;color:var(--danger);"></i>
+              <span id="pm-overdue-label" style="font-size:.875rem;font-weight:700;color:var(--danger);"></span>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="toggleOverdueTable()" id="pm-overdue-toggle-btn">
+              <i data-lucide="chevron-down" id="pm-overdue-toggle-icon"></i>แสดงรายการ
+            </button>
+          </div>
+          <div id="pm-overdue-table-wrap" style="display:none;">
+            <div class="table-responsive">
+              <table class="custom-table">
+                <thead>
+                  <tr style="background:rgba(239,68,68,.04);">
+                    <th style="color:var(--danger);">รหัสแผน PM</th>
+                    <th>Serial Number</th>
+                    <th>สินค้า</th>
+                    <th>โรงพยาบาล</th>
+                    <th>เดือนที่กำหนด</th>
+                    <th>เลยกำหนด</th>
+                    <th>จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody id="body-pm-overdue"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Current Month PM Table -->
+        <div class="panel" style="margin-bottom:0;">
+          <div class="panel-header">
+            <h3 class="panel-title" id="pm-table-title">
+              <i data-lucide="calendar-check"></i>แผน PM ประจำเดือน
+            </h3>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div class="search-box-wrapper" style="min-width:220px;">
+                <i data-lucide="search"></i>
+                <input type="text" id="pm-search-input" class="form-control search-input" placeholder="ค้นหา S/N, โรงพยาบาล..." oninput="filterPmTable()">
+              </div>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="custom-table">
+              <thead>
+                <tr>
+                  <th>รหัสแผน PM</th>
+                  <th>Serial Number</th>
+                  <th>สินค้า / Brand</th>
+                  <th>โรงพยาบาล</th>
+                  <th>แผนก</th>
+                  <th>รอบ PM</th>
+                  <th>ผู้ปิดงาน</th>
+                  <th>เอกสาร</th>
+                  <th>สถานะ</th>
+                  <th>บันทึกผล</th>
+                </tr>
+              </thead>
+              <tbody id="body-pm"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ====== DELIVERED ====== -->
+      <section id="view-section-delivered" class="view-section">
+        <div class="filter-bar">
+          <div class="search-box-wrapper">
+            <i data-lucide="search"></i>
+            <input type="text" id="delivered-search-input" class="form-control search-input" placeholder="ค้นหา S/N, ชื่อสินค้า, โรงพยาบาล..." oninput="filterDeliveredTable()">
+          </div>
+          <div class="filter-options">
+            <select id="delivered-filter-warranty" class="form-control" onchange="filterDeliveredTable()" style="min-width:140px;">
+              <option value="">ทุกสถานะประกัน</option>
+              <option value="active">อยู่ในประกัน</option>
+              <option value="expired">หมดประกัน</option>
+              <option value="expiring">ใกล้หมดประกัน</option>
+            </select>
+            <button class="btn btn-primary" id="btn-open-register-delivered" onclick="openRegisterDeliveredModal()">
+              <i data-lucide="plus"></i>ลงทะเบียนส่งมอบใหม่
+            </button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="custom-table">
+            <thead><tr><th>S/N</th><th>สินค้า / ยี่ห้อ</th><th>โรงพยาบาล</th><th>วันส่งมอบ</th><th>ประกัน</th><th>วันหมดประกัน</th><th>รอบ PM</th><th>เอกสาร</th><th>จัดการ</th></tr></thead>
+            <tbody id="body-delivered"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ====== WAREHOUSE ====== -->
+      <section id="view-section-warehouse" class="view-section">
+        <div id="warehouse-alert-box" class="alert-banner danger" style="display:none;">
+          <i data-lucide="alert-circle"></i>
+          <div id="warehouse-alert-message">มีอะไหล่คงเหลือต่ำ!</div>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-icon primary"><i data-lucide="package"></i></div><div class="stat-details"><h4>รายการอะไหล่ทั้งหมด</h4><div class="counter" id="wh-stat-total-items">0</div></div></div>
+          <div class="stat-card"><div class="stat-icon success"><i data-lucide="badge-dollar-sign"></i></div><div class="stat-details"><h4>มูลค่าคงคลังรวม</h4><div class="counter" id="wh-stat-total-value">฿0</div></div></div>
+          <div class="stat-card"><div class="stat-icon warning"><i data-lucide="trending-up"></i></div><div class="stat-details"><h4>รับเข้าเดือนนี้</h4><div class="counter" id="wh-stat-transactions-in">0</div></div></div>
+          <div class="stat-card"><div class="stat-icon danger"><i data-lucide="trending-down"></i></div><div class="stat-details"><h4>จ่ายออกเดือนนี้</h4><div class="counter" id="wh-stat-transactions-out">0</div></div></div>
+        </div>
+
+        <div class="dashboard-layout" style="grid-template-columns:2fr 1.2fr;gap:24px;">
+          <div class="panel" style="margin-bottom:0;">
+            <div class="panel-header">
+              <h3 class="panel-title"><i data-lucide="package"></i>รายการอะไหล่สำรองในคลัง</h3>
+              <div style="display:flex;gap:8px;" id="wh-manage-actions">
+                <button class="btn btn-success btn-sm" onclick="openReceiveStockModal()"><i data-lucide="arrow-down-to-line"></i>รับเข้า (IN)</button>
+                <button class="btn btn-danger btn-sm" onclick="openIssueStockModal()"><i data-lucide="arrow-up-from-line"></i>จ่ายออก (OUT)</button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="custom-table">
+                <thead><tr><th>รหัส</th><th>ชื่ออะไหล่</th><th>รหัสสินค้า</th><th>คงเหลือ</th><th>Min Stock</th><th>ราคา/ชิ้น</th><th>สถานะ</th></tr></thead>
+                <tbody id="body-warehouse-parts"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel" style="margin-bottom:0;">
+            <div class="panel-header">
+              <h3 class="panel-title"><i data-lucide="clock"></i>ประวัติเบิกจ่ายล่าสุด</h3>
+            </div>
+            <div id="warehouse-transaction-logs" style="max-height:420px;overflow-y:auto;"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====== MASTER: CUSTOMERS ====== -->
+      <section id="view-section-master-customers" class="view-section">
+        <div class="filter-bar">
+          <div class="search-box-wrapper">
+            <i data-lucide="search"></i>
+            <input type="text" id="cust-search" class="form-control search-input" placeholder="ค้นหาชื่อโรงพยาบาล, จังหวัด..." oninput="filterMasterCustomers()">
+          </div>
+          <div class="filter-options">
+            <select id="cust-filter-zone" class="form-control" onchange="filterMasterCustomers()" style="min-width:130px;">
+              <option value="">ทุกเขต</option>
+              <option value="North">ภาคเหนือ</option>
+              <option value="Central">ภาคกลาง</option>
+              <option value="South">ภาคใต้</option>
+              <option value="East">ภาคตะวันออก</option>
+            </select>
+            <button class="btn btn-primary" onclick="openMasterCustomerModal()"><i data-lucide="plus"></i>เพิ่มลูกค้าใหม่</button>
+          </div>
+        </div>
+        <div class="master-data-grid" id="master-customers-grid"></div>
+      </section>
+
+      <!-- ====== MASTER: PRODUCTS ====== -->
+      <section id="view-section-master-products" class="view-section">
+        <div class="filter-bar">
+          <div class="search-box-wrapper">
+            <i data-lucide="search"></i>
+            <input type="text" id="prod-search" class="form-control search-input" placeholder="ค้นหาชื่อสินค้า, ยี่ห้อ..." oninput="filterMasterProducts()">
+          </div>
+          <div class="filter-options">
+            <button class="btn btn-primary" onclick="openMasterProductModal()"><i data-lucide="plus"></i>เพิ่มสินค้าใหม่</button>
+          </div>
+        </div>
+        <div class="master-data-grid" id="master-products-grid"></div>
+      </section>
+
+      <!-- ====== MASTER: PARTS ====== -->
+      <section id="view-section-master-parts" class="view-section">
+        <div class="filter-bar">
+          <div class="search-box-wrapper">
+            <i data-lucide="search"></i>
+            <input type="text" id="part-search" class="form-control search-input" placeholder="ค้นหาชื่ออะไหล่, รหัส..." oninput="filterMasterParts()">
+          </div>
+          <div class="filter-options">
+            <button class="btn btn-primary" onclick="openMasterPartModal()"><i data-lucide="plus"></i>เพิ่มอะไหล่ใหม่</button>
+          </div>
+        </div>
+        <div class="master-data-grid" id="master-parts-grid"></div>
+      </section>
+
+      <!-- ====== MASTER: ZONES ====== -->
+      <section id="view-section-master-zones" class="view-section">
+        <div class="filter-bar">
+          <div class="search-box-wrapper">
+            <i data-lucide="search"></i>
+            <input type="text" id="zone-search" class="form-control search-input" placeholder="ค้นหาชื่อเขต, ผู้แทน..." oninput="filterMasterZones()">
+          </div>
+          <div class="filter-options">
+            <button class="btn btn-primary" onclick="openMasterZoneModal()"><i data-lucide="plus"></i>เพิ่มเขตใหม่</button>
+          </div>
+        </div>
+        <div class="master-data-grid" id="master-zones-grid"></div>
+      </section>
+
+      <!-- ====== REPORTS ====== -->
+      <section id="view-section-reports" class="view-section">
+        <div class="export-panel">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+            <div style="width:44px;height:44px;border-radius:var(--radius-md);background:linear-gradient(135deg,var(--primary),#818cf8);display:flex;align-items:center;justify-content:center;">
+              <i data-lucide="file-bar-chart" style="width:22px;height:22px;color:white;"></i>
+            </div>
+            <div>
+              <h3 style="font-size:1.1rem;font-weight:700;">ออกรายงาน & Export ข้อมูล</h3>
+              <p style="font-size:.8rem;color:var(--text-muted);">Export ข้อมูลในระบบออกเป็นไฟล์ CSV หรือพิมพ์รายงาน</p>
+            </div>
+          </div>
+          <div class="export-grid">
+            <div class="export-card" onclick="exportCSV('repair_jobs')">
+              <div class="export-card-icon" style="background:rgba(99,102,241,.1);"><i data-lucide="wrench" style="width:22px;height:22px;color:var(--primary);"></i></div>
+              <h4>รายงานงานซ่อม</h4>
+              <p>Export ทะเบียนงานซ่อมทั้งหมด</p>
+              <span class="badge badge-registered">CSV</span>
+            </div>
+            <div class="export-card" onclick="exportCSV('onsite_jobs')">
+              <div class="export-card-icon" style="background:rgba(6,182,212,.1);"><i data-lucide="navigation" style="width:22px;height:22px;color:var(--info);"></i></div>
+              <h4>รายงาน Onsite/Oncall</h4>
+              <p>Export ประวัติงานนอกสถานที่</p>
+              <span class="badge badge-info" style="background:rgba(6,182,212,.1);color:#0891b2;">CSV</span>
+            </div>
+            <div class="export-card" onclick="exportCSV('pm_jobs')">
+              <div class="export-card-icon" style="background:rgba(245,158,11,.1);"><i data-lucide="calendar-check" style="width:22px;height:22px;color:var(--warning);"></i></div>
+              <h4>รายงาน PM</h4>
+              <p>Export แผน PM ทั้งหมด</p>
+              <span class="badge badge-warning">CSV</span>
+            </div>
+            <div class="export-card" onclick="exportCSV('delivered_products')">
+              <div class="export-card-icon" style="background:rgba(16,185,129,.1);"><i data-lucide="package-check" style="width:22px;height:22px;color:var(--success);"></i></div>
+              <h4>รายงานเครื่องส่งมอบ</h4>
+              <p>Export ทะเบียนเครื่องลูกค้า</p>
+              <span class="badge badge-success">CSV</span>
+            </div>
+            <div class="export-card" onclick="exportCSV('parts')">
+              <div class="export-card-icon" style="background:rgba(139,92,246,.1);"><i data-lucide="package" style="width:22px;height:22px;color:#7c3aed;"></i></div>
+              <h4>รายงานอะไหล่คงคลัง</h4>
+              <p>Export รายการสต็อกทั้งหมด</p>
+              <span class="badge badge-returned">CSV</span>
+            </div>
+            <div class="export-card" onclick="exportCSV('parts_transactions')">
+              <div class="export-card-icon" style="background:rgba(239,68,68,.1);"><i data-lucide="arrow-right-left" style="width:22px;height:22px;color:var(--danger);"></i></div>
+              <h4>รายงานเบิกจ่ายอะไหล่</h4>
+              <p>Export ประวัติ Transaction ทั้งหมด</p>
+              <span class="badge badge-danger">CSV</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Report Preview -->
+        <div class="panel">
+          <div class="panel-header">
+            <h3 class="panel-title"><i data-lucide="table"></i>ตัวอย่างข้อมูล (Preview)</h3>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="report-preview-select" class="form-control" style="min-width:180px;" onchange="loadReportPreview()">
+                <option value="repair_jobs">งานซ่อม</option>
+                <option value="onsite_jobs">Onsite/Oncall</option>
+                <option value="pm_jobs">PM</option>
+                <option value="delivered_products">เครื่องส่งมอบ</option>
+                <option value="parts">อะไหล่</option>
+              </select>
+              <button class="btn btn-outline btn-sm" onclick="exportCSV(document.getElementById('report-preview-select').value)">
+                <i data-lucide="download"></i>Export
+              </button>
+            </div>
+          </div>
+          <div class="table-responsive" id="report-preview-table-container">
+            <p style="text-align:center;color:var(--text-muted);padding:20px;">เลือกรายงานเพื่อดูตัวอย่างข้อมูล</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====== USERS ====== -->
+      <section id="view-section-users" class="view-section">
+        <div class="filter-bar">
+          <div class="search-box-wrapper">
+            <i data-lucide="search"></i>
+            <input type="text" id="users-search-input" class="form-control search-input" placeholder="ค้นหา Username, ชื่อ, บทบาท..." oninput="filterUsersTable()">
+          </div>
+          <div class="filter-options">
+            <button class="btn btn-primary" onclick="openRegisterUserModal()"><i data-lucide="user-plus"></i>เพิ่มผู้ใช้งานใหม่</button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="custom-table">
+            <thead><tr><th>รหัส</th><th>Username</th><th>ชื่อ-นามสกุล</th><th>บทบาท</th><th>เขต</th><th>จัดการ</th></tr></thead>
+            <tbody id="body-users"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ====== COMPANY SETTINGS ====== -->
+      <section id="view-section-company" class="view-section">
+        <div class="panel">
+          <div class="panel-header">
+            <h3 class="panel-title"><i data-lucide="building"></i>ข้อมูลบริษัท / สำนักงาน</h3>
+            <button class="btn btn-primary btn-sm" onclick="openCompanyModal()"><i data-lucide="edit-3"></i>แก้ไขข้อมูล</button>
+          </div>
+          <div id="company-info-display" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;"></div>
+        </div>
+      </section>
+
+    </div><!-- end viewport -->
+  </main>
+</div><!-- end view-main -->
+
+<!-- ==================== MODALS ==================== -->
+
+<!-- Modal: Register Repair -->
+<div class="modal-overlay" id="modal-register-repair">
+  <div class="modal-container" style="max-width:740px;">
+    <div class="modal-header">
+      <h3 class="modal-title">ลงทะเบียนรับแจ้งงานซ่อมใหม่</h3>
+      <button class="modal-close" onclick="closeModal('modal-register-repair')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-register-repair">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">เลขที่งานซ่อม (Auto)</label>
+            <input type="text" id="rep-reg-id" class="form-control" readonly>
+          </div>
+          <div class="form-group">
+            <label class="form-label">วันที่รับแจ้ง</label>
+            <input type="text" id="rep-reg-date" class="form-control" readonly>
+          </div>
+        </div>
+
+        <!-- SN Search -->
+        <div style="background:rgba(99,102,241,.04);border:1.5px solid rgba(99,102,241,.15);border-radius:var(--radius-md);padding:14px;margin-bottom:14px;">
+          <div style="font-size:.75rem;font-weight:700;color:var(--primary);margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+            <i data-lucide="search" style="width:13px;height:13px;"></i>
+            ค้นหา S/N — ถ้าพบในระบบจะดึงข้อมูลให้อัตโนมัติ (ถ้าไม่มีกรอกข้อมูลเองด้านล่างได้)
+          </div>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="rep-reg-sn" class="form-control" placeholder="พิมพ์ S/N แล้วกด Enter หรือกดค้นหา..."
+              onkeydown="if(event.key==='Enter'){event.preventDefault();lookupRepairSN();}">
+            <button type="button" class="btn btn-primary" onclick="lookupRepairSN()" style="white-space:nowrap;">
+              <i data-lucide="search"></i>ค้นหา
+            </button>
+            <button type="button" class="btn btn-secondary btn-icon-only" onclick="clearRepairSN()" title="ล้าง">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div id="rep-reg-sn-info" style="display:none;margin-top:10px;background:white;border-radius:var(--radius-sm);padding:10px 14px;border:1px solid rgba(0,0,0,.06);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <div style="font-size:.82rem;font-weight:700;" id="rep-reg-sn-device-name">-</div>
+              <span id="rep-reg-sn-warranty-badge" class="badge">-</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:.78rem;">
+              <div><span style="color:var(--text-muted);">S/N:</span> <strong id="rep-reg-sn-val">-</strong></div>
+              <div><span style="color:var(--text-muted);">ลูกค้า:</span> <span id="rep-reg-sn-cust">-</span></div>
+              <div><span style="color:var(--text-muted);">หมดประกัน:</span> <span id="rep-reg-sn-expiry">-</span></div>
+            </div>
+          </div>
+          <div id="rep-reg-sn-notfound" style="display:none;margin-top:8px;font-size:.82rem;color:var(--warning);align-items:center;gap:6px;">
+            <i data-lucide="alert-triangle" style="width:13px;height:13px;"></i>
+            <span>ไม่พบ S/N นี้ในระบบ — กรอกข้อมูลด้านล่างด้วยตนเอง</span>
+          </div>
+        </div>
+
+        <input type="hidden" id="rep-reg-sn-hidden">
+
+        <!-- Product — เลือกจาก DB หรือพิมพ์เองได้ -->
+        <div class="form-group">
+          <label class="form-label">เครื่องมือแพทย์ที่ชำรุด <span style="color:var(--danger)">*</span>
+            <span style="font-size:.72rem;color:var(--text-muted);font-weight:400;margin-left:4px;">— เลือกจากระบบ หรือพิมพ์ชื่อเองได้</span>
+          </label>
+          <div style="display:flex;gap:8px;">
+            <input type="hidden" id="rep-reg-prod-id">
+            <input type="text" id="rep-reg-prod-name" class="form-control" placeholder="เลือกจากระบบ หรือพิมพ์ชื่อสินค้าได้เลย..." required>
+            <button type="button" class="btn btn-secondary btn-icon-only" onclick="openPicker('products','rep-reg-prod-id','rep-reg-prod-name','rep-reg-prod-brand')" title="เลือกจากระบบ"><i data-lucide="search"></i></button>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">ยี่ห้อ / Brand</label>
+            <input type="text" id="rep-reg-prod-brand" class="form-control" placeholder="เช่น Medtronic, Philips...">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Serial Number (S/N)</label>
+            <input type="text" id="rep-reg-sn-display" class="form-control" placeholder="พิมพ์ S/N ได้เลย..." style="font-family:monospace;font-weight:600;color:var(--primary);"
+              oninput="document.getElementById('rep-reg-sn-hidden').value=this.value">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">อุปกรณ์ประกอบที่นำมาซ่อม</label>
+          <input type="text" id="rep-reg-accessories" class="form-control" placeholder="เช่น สายไฟ, แบตเตอรี่, อะแดปเตอร์">
+        </div>
+
+        <!-- Customer — เลือกจาก DB หรือพิมพ์เองได้ -->
+        <div class="form-group">
+          <label class="form-label">โรงพยาบาล / ลูกค้า <span style="color:var(--danger)">*</span>
+            <span style="font-size:.72rem;color:var(--text-muted);font-weight:400;margin-left:4px;">— เลือกจากระบบ หรือพิมพ์ชื่อเองได้</span>
+          </label>
+          <div style="display:flex;gap:8px;">
+            <input type="hidden" id="rep-reg-cust-id">
+            <input type="text" id="rep-reg-cust-name" class="form-control" placeholder="เลือกจากระบบ หรือพิมพ์ชื่อโรงพยาบาลได้เลย..." required>
+            <button type="button" class="btn btn-secondary btn-icon-only" onclick="openPicker('customers','rep-reg-cust-id','rep-reg-cust-name')" title="เลือกจากระบบ"><i data-lucide="search"></i></button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">แผนก / หน่วยงาน</label>
+          <input type="text" id="rep-reg-dept" class="form-control" placeholder="เช่น แผนกไอซียู, ห้องผ่าตัด, อายุรกรรม...">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">อาการชำรุดที่แจ้ง <span style="color:var(--danger)">*</span></label>
+          <textarea id="rep-reg-symptom" class="form-control" rows="3" placeholder="ระบุอาการชำรุดตามที่ลูกค้าแจ้ง..." required></textarea>
+        </div>
+
+        <!-- Warranty Condition -->
+        <div class="form-group">
+          <label class="form-label">เงื่อนไขการรับประกัน <span style="color:var(--danger)">*</span></label>
+          <div id="rep-reg-warranty-auto-badge" style="display:none;margin-bottom:8px;"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid rgba(16,185,129,.3);border-radius:var(--radius-sm);cursor:pointer;flex:1;min-width:160px;background:rgba(16,185,129,.04);transition:.15s;" id="wc-label-in_warranty">
+              <input type="radio" name="rep-reg-warranty-cond" id="wc-in_warranty" value="in_warranty" style="accent-color:#10b981;">
+              <span style="font-size:.875rem;font-weight:700;color:#065f46;">✓ สินค้าในประกัน</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid rgba(239,68,68,.2);border-radius:var(--radius-sm);cursor:pointer;flex:1;min-width:160px;background:rgba(239,68,68,.03);transition:.15s;" id="wc-label-out_warranty">
+              <input type="radio" name="rep-reg-warranty-cond" id="wc-out_warranty" value="out_warranty" style="accent-color:#ef4444;">
+              <span style="font-size:.875rem;font-weight:700;color:#991b1b;">✗ สินค้านอกประกัน</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid rgba(245,158,11,.25);border-radius:var(--radius-sm);cursor:pointer;flex:1;min-width:200px;background:rgba(245,158,11,.04);transition:.15s;" id="wc-label-void_warranty">
+              <input type="radio" name="rep-reg-warranty-cond" id="wc-void_warranty" value="void_warranty" style="accent-color:#f59e0b;">
+              <span style="font-size:.875rem;font-weight:700;color:#92400e;">⚠ ในประกัน แต่ไม่ครอบคลุม</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-register-repair')">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary"><i data-lucide="save"></i>บันทึกรับงานซ่อม</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Repair Progress (9-step workflow) -->
+<div class="modal-overlay" id="modal-repair-progress">
+  <div class="modal-container" style="max-width:860px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="rep-prog-title">จัดการสถานะงานซ่อม</h3>
+      <button class="modal-close" onclick="closeModal('modal-repair-progress')">&times;</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- 9-step Stepper -->
+      <div id="repair-stepper" style="overflow-x:auto;margin-bottom:20px;padding:14px 12px;background:rgba(0,0,0,.02);border-radius:var(--radius-md);border:1px solid var(--border-color);">
+        <!-- Filled by JS -->
+      </div>
+
+      <!-- Job Info Summary -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;font-size:.875rem;background:rgba(0,0,0,.02);padding:14px;border-radius:var(--radius-md);">
+        <div>
+          <p style="margin-bottom:5px;"><strong style="color:var(--text-secondary);">สินค้าชำรุด:</strong> <span id="rep-prog-lbl-product">-</span></p>
+          <p style="margin-bottom:5px;"><strong style="color:var(--text-secondary);">ยี่ห้อ / อุปกรณ์:</strong> <span id="rep-prog-lbl-brand">-</span> [<span id="rep-prog-lbl-accessory">-</span>]</p>
+          <p style="margin-bottom:5px;"><strong style="color:var(--text-secondary);">S/N:</strong> <span id="rep-prog-lbl-sn" style="font-family:monospace;font-weight:700;color:var(--primary);">-</span></p>
+          <p><strong style="color:var(--text-secondary);">ลูกค้า:</strong> <span id="rep-prog-lbl-customer">-</span></p>
+        </div>
+        <div>
+          <p style="margin-bottom:5px;"><strong style="color:var(--text-secondary);">อาการ:</strong> <span id="rep-prog-lbl-symptom" style="color:var(--warning);">-</span></p>
+          <p style="margin-bottom:5px;"><strong style="color:var(--text-secondary);">วันที่รับ:</strong> <span id="rep-prog-lbl-date">-</span></p>
+          <p><strong style="color:var(--text-secondary);">สถานะปัจจุบัน:</strong> <span id="rep-prog-lbl-status">-</span></p>
+        </div>
+      </div>
+
+      <input type="hidden" id="rep-prog-id">
+
+      <!-- STAGE 1: แก้ไขข้อมูลลงทะเบียน -->
+      <div id="stage-box-registered" class="panel" style="display:none;">
+        <h4 style="margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px;"><i data-lucide="clipboard-list"></i>ขั้นที่ 1: ข้อมูลลงทะเบียนรับงาน</h4>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">ลูกค้า / โรงพยาบาล</label>
+            <input type="text" id="edit-reg-cust-name" class="form-control" readonly style="background:rgba(0,0,0,.03);">
+          </div>
+          <div class="form-group">
+            <label class="form-label">S/N เครื่อง</label>
+            <input type="text" id="edit-reg-sn" class="form-control" style="font-family:monospace;font-weight:700;color:var(--primary);">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">แผนก / หน่วยงาน</label>
+            <input type="text" id="edit-reg-dept" class="form-control" placeholder="เช่น ไอซียู, ห้องผ่าตัด...">
+          </div>
+          <div class="form-group">
+            <label class="form-label">อุปกรณ์ประกอบ</label>
+            <input type="text" id="edit-reg-accessory" class="form-control" placeholder="สายไฟ, แบตเตอรี่, ...">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">อาการชำรุดที่แจ้ง <span style="color:var(--danger)">*</span></label>
+          <textarea id="edit-reg-symptom" class="form-control" rows="3"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">เงื่อนไขการรับประกัน</label>
+          <select id="edit-reg-warranty" class="form-control">
+            <option value="in_warranty">✓ สินค้าในประกัน</option>
+            <option value="out_warranty">✗ สินค้านอกประกัน</option>
+            <option value="void_warranty">⚠ ในประกัน แต่ไม่ครอบคลุม</option>
+          </select>
+        </div>
+        <div style="background:rgba(99,102,241,.05);border:1px solid rgba(99,102,241,.12);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:.82rem;color:var(--text-secondary);">
+          <i data-lucide="info" style="width:13px;height:13px;display:inline;vertical-align:middle;color:var(--primary);"></i>
+          บันทึกข้อมูล และพิมพ์ใบรับงานซ่อม → สถานะจะเปลี่ยนเป็น <strong>"ตรวจเช็ค"</strong>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary" onclick="saveRepairRegistration()">
+            <i data-lucide="save"></i>บันทึกข้อมูล
+          </button>
+          <button type="button" class="btn btn-primary" onclick="printAndAdvanceReceipt()">
+            <i data-lucide="printer"></i>พิมพ์ใบรับงาน → เปลี่ยนสถานะ "ตรวจเช็ค"
+          </button>
+        </div>
+      </div>
+      <div id="stage-box-check" class="panel" style="display:none;">
+        <h4 style="margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px;"><i data-lucide="activity"></i>ขั้นที่ 2: บันทึกผลตรวจเช็ค</h4>
+
+        <!-- Warranty mode notice (shown only for in_warranty) -->
+        <div id="check-warranty-notice" style="display:none;background:rgba(16,185,129,.06);border:1.5px solid rgba(16,185,129,.25);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:.82rem;color:#065f46;display:none;align-items:center;gap:8px;">
+          <i data-lucide="shield-check" style="width:14px;height:14px;flex-shrink:0;"></i>
+          <span><strong>สินค้าในประกัน</strong> — หลังบันทึกผลตรวจเช็ค สามารถเลือกได้ว่า จะ <u>ทำใบเสนอราคาค่าบริการ</u> หรือ <u>เคลมสินค้าโดยไม่มีค่าบริการ</u></span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">ผลการตรวจเช็ค (Engineering Diagnosis) <span style="color:var(--danger)">*</span></label>
+          <textarea id="rep-check-diagnosis" class="form-control" rows="3" placeholder="วิศวกรระบุปัญหาที่ตรวจพบ..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">อะไหล่ที่ต้องใช้ — ค้นหาหรือสแกน Barcode</label>
+          <div style="display:flex;gap:8px;margin-bottom:8px;">
+            <input type="text" id="rep-part-search-input" class="form-control" placeholder="พิมพ์ชื่ออะไหล่ หรือสแกน Barcode..." oninput="filterRepairPartSearch()" onkeydown="if(event.key==='Enter'){event.preventDefault();addRepairPartByBarcode();}">
+            <button type="button" class="btn btn-primary btn-sm" onclick="addRepairPartByBarcode()"><i data-lucide="scan-barcode"></i>เพิ่ม</button>
+          </div>
+          <div id="rep-part-search-dropdown" style="display:none;border:1px solid rgba(0,0,0,.08);border-radius:var(--radius-sm);max-height:180px;overflow-y:auto;background:white;margin-bottom:8px;box-shadow:0 4px 12px rgba(0,0,0,.08);"></div>
+          <div class="table-responsive" id="rep-parts-selected-wrap" style="display:none;">
+            <table class="custom-table" id="rep-parts-selected-table">
+              <thead><tr><th>รหัส</th><th>ชื่ออะไหล่</th><th>คงเหลือ</th><th>ราคา/ชิ้น</th><th>จำนวน</th><th>รวม</th><th></th></tr></thead>
+              <tbody id="rep-parts-selected-body"></tbody>
+              <tfoot><tr><td colspan="5" style="text-align:right;font-weight:700;padding:10px 16px;">รวมค่าอะไหล่:</td><td id="rep-parts-total" style="font-weight:800;color:var(--primary);padding:10px 16px;">฿0</td><td></td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- Action buttons: dynamic based on warranty_condition -->
+        <!-- Normal (out_warranty / void_warranty) -->
+        <div id="check-btn-normal">
+          <button type="button" class="btn btn-primary" onclick="submitRepairCheck('quote')">
+            <i data-lucide="check"></i>บันทึกผลตรวจเช็ค → จัดทำใบเสนอราคา
+          </button>
+        </div>
+        <!-- Warranty (in_warranty) - 2 choices -->
+        <div id="check-btn-warranty" style="display:none;">
+          <div style="font-size:.82rem;font-weight:700;color:#475569;margin-bottom:10px;">เลือกขั้นตอนถัดไป:</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-warning" onclick="submitRepairCheck('quote')" style="flex:1;min-width:200px;">
+              <i data-lucide="file-text"></i>
+              <div style="text-align:left;">
+                <div style="font-weight:800;">มีค่าบริการ → ทำใบเสนอราคา</div>
+                <div style="font-size:.72rem;opacity:.8;font-weight:400;">ออกใบเสนอราคาค่าแรง/ค่าบริการ</div>
+              </div>
+            </button>
+            <button type="button" class="btn btn-success" onclick="submitRepairCheck('claim_free')" style="flex:1;min-width:200px;">
+              <i data-lucide="shield-check"></i>
+              <div style="text-align:left;">
+                <div style="font-weight:800;">ไม่มีค่าบริการ → เคลมสินค้าฟรี</div>
+                <div style="font-size:.72rem;opacity:.8;font-weight:400;">ข้ามใบเสนอราคา → เบิกอะไหล่ทันที</div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STAGE 3/4: ใบเสนอราคา / ส่งเคลม (ขึ้นอยู่กับเงื่อนไขประกัน) -->
+      <div id="stage-box-quote" class="panel" style="display:none;">
+        <!-- Mode indicator: จะเปลี่ยนตาม warranty_condition -->
+        <div id="quote-mode-banner" style="padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:14px;font-size:.875rem;font-weight:700;display:flex;align-items:center;gap:8px;"></div>
+
+        <h4 id="quote-stage-title" style="margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px;"></h4>
+
+        <!-- ===== QUOTATION MODE (นอกประกัน / ไม่ครอบคลุม) ===== -->
+        <div id="quote-mode-quotation">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">เลขที่ใบเสนอราคา <span style="color:var(--danger)">*</span></label>
+              <input type="text" id="rep-quote-no" class="form-control" placeholder="QT-2026-XXXX">
+            </div>
+            <div class="form-group">
+              <label class="form-label">วันที่เสนอราคา</label>
+              <input type="date" id="rep-quote-date" class="form-control">
+            </div>
+          </div>
+          <!-- Editable parts table -->
+          <div class="form-group">
+            <label class="form-label">รายการอะไหล่ (แก้ไขได้)</label>
+            <div style="display:flex;gap:8px;margin-bottom:8px;">
+              <input type="text" id="rep-quote-part-search" class="form-control" placeholder="เพิ่มอะไหล่เพิ่มเติม..." oninput="filterQuotePartSearch()">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="addQuotePart()"><i data-lucide="plus"></i>เพิ่ม</button>
+            </div>
+            <div id="rep-quote-part-dropdown" style="display:none;border:1px solid rgba(0,0,0,.08);border-radius:var(--radius-sm);max-height:160px;overflow-y:auto;background:white;margin-bottom:8px;box-shadow:0 4px 12px rgba(0,0,0,.08);"></div>
+            <div class="table-responsive">
+              <table class="custom-table">
+                <thead><tr><th>รหัส</th><th>รายการ</th><th>ราคา/ชิ้น (฿)</th><th>จำนวน</th><th>รวม</th><th></th></tr></thead>
+                <tbody id="rep-quote-parts-body"></tbody>
+                <tfoot>
+                  <tr><td colspan="4" style="text-align:right;padding:8px 16px;">ค่าแรง/ค่าบริการ:</td><td colspan="2" style="padding:8px 16px;"><input type="number" id="rep-service-fee" class="form-control" value="1500" min="0" style="width:120px;" oninput="recalcQuoteTotal()"></td></tr>
+                  <tr style="background:rgba(99,102,241,.04);"><td colspan="4" style="text-align:right;font-weight:800;padding:10px 16px;">รวมก่อน VAT:</td><td id="rep-quote-subtotal" style="font-weight:800;color:var(--primary);padding:10px 16px;" colspan="2">฿0</td></tr>
+                  <tr><td colspan="4" style="text-align:right;padding:6px 16px;">VAT 7%:</td><td id="rep-quote-vat" style="padding:6px 16px;" colspan="2">฿0</td></tr>
+                  <tr style="background:rgba(99,102,241,.08);"><td colspan="4" style="text-align:right;font-weight:800;padding:10px 16px;font-size:1rem;">ยอดรวมสุทธิ:</td><td id="rep-quote-grand" style="font-weight:800;color:var(--primary);font-size:1rem;padding:10px 16px;" colspan="2">฿0</td></tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary" onclick="showQuotationInvoice()"><i data-lucide="printer"></i>พิมพ์ใบเสนอราคา (และเปลี่ยนสถานะ → เสนอราคาแล้ว)</button>
+        </div>
+
+        <!-- ===== CLAIM MODE (ในประกัน) ===== -->
+        <div id="quote-mode-claim" style="display:none;">
+          <div style="background:rgba(16,185,129,.05);border:1.5px solid rgba(16,185,129,.2);border-radius:var(--radius-md);padding:14px;margin-bottom:16px;font-size:.875rem;">
+            <div style="font-weight:700;color:#065f46;margin-bottom:6px;">📋 รายการอะไหล่ที่จะเคลม</div>
+            <div id="claim-parts-summary" style="color:var(--text-secondary);font-size:.85rem;"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">เลขที่ใบแจ้งเคลม (Claim No.)</label>
+              <input type="text" id="rep-claim-no" class="form-control" placeholder="CLM-2026-XXXX">
+            </div>
+            <div class="form-group">
+              <label class="form-label">วันที่แจ้งเคลม</label>
+              <input type="date" id="rep-claim-date" class="form-control">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="rep-claim-has-service-fee" onchange="toggleClaimServiceFee()">
+              มีค่าบริการ/ค่าแรง
+            </label>
+            <div id="rep-claim-service-fee-wrap" style="display:none;margin-top:8px;">
+              <input type="number" id="rep-claim-service-fee" class="form-control" value="0" min="0" placeholder="ระบุค่าบริการ (บาท)" style="max-width:200px;">
+              <div style="font-size:.78rem;color:var(--text-muted);margin-top:4px;">กรณีในประกัน ค่าอะไหล่ไม่คิด แต่อาจมีค่าแรง/ค่าบริการ</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-success" onclick="submitWarrantyClaim()"><i data-lucide="shield-check"></i>บันทึกส่งเคลม → ดำเนินการเบิกอะไหล่</button>
+        </div>
+      </div>
+
+      <!-- STAGE 5: รับ PO + พิมพ์ใบเบิก -->
+      <div id="stage-box-po" class="panel" style="display:none;">
+        <h4 style="margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px;"><i data-lucide="file-check"></i>ขั้นที่ 5: บันทึก PO</h4>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">เลขที่ PO <span style="color:var(--danger)">*</span></label>
+            <input type="text" id="rep-po-no" class="form-control" placeholder="PO Number จากลูกค้า...">
+          </div>
+          <div class="form-group">
+            <label class="form-label">กำหนดส่งมอบ</label>
+            <input type="date" id="rep-po-delivery" class="form-control">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">อัปโหลดสแกน PO</label>
+          <div class="file-upload-zone" onclick="simulateFileUpload('rep-po-file')">
+            <i data-lucide="upload-cloud"></i><p>คลิกอัปโหลด ใบสั่งจ้าง / PO</p><span style="font-size:.72rem;color:var(--text-muted);display:block;margin-top:3px;">PDF, JPG, PNG — ไม่เกิน 10MB</span>
+            <span id="rep-po-file-name" style="color:var(--success);font-weight:600;font-size:.9rem;display:block;margin-top:8px;"></span>
+          </div>
+        </div>
+        <div style="background:rgba(99,102,241,.05);border:1px solid rgba(99,102,241,.12);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:.82rem;color:var(--text-secondary);">
+          <i data-lucide="info" style="width:13px;height:13px;display:inline;vertical-align:middle;color:var(--primary);"></i>
+          หลังบันทึก PO แล้ว ปุ่ม <strong>พิมพ์ใบเบิกอะไหล่</strong> จะปรากฏในตารางหลักโดยอัตโนมัติ
+        </div>
+        <button type="button" class="btn btn-primary" onclick="submitRepairPO()"><i data-lucide="file-check"></i>บันทึก PO → เบิก/สั่งอะไหล่</button>
+      </div>
+
+      <!-- STAGE 6: คลังจ่ายอะไหล่ -->
+      <div id="stage-box-parts-issue" class="panel" style="display:none;">
+        <h4 style="margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px;"><i data-lucide="package-open"></i>ขั้นที่ 6: คลังจ่ายอะไหล่</h4>
+        <div id="parts-issue-summary" style="background:rgba(99,102,241,.04);border:1px solid rgba(99,102,241,.12);border-radius:var(--radius-md);padding:14px;margin-bottom:14px;font-size:.875rem;"></div>
+        <div class="form-group">
+          <label class="form-label">อัปโหลดใบเบิกอะไหล่ที่อนุมัติแล้ว <span style="color:var(--danger)">*</span></label>
+          <div class="file-upload-zone" onclick="simulateFileUpload('rep-parts-file')">
+            <i data-lucide="file-check-2"></i><p>คลิกอัปโหลด ใบเบิกอะไหล่ที่เซ็นแล้ว</p><span style="font-size:.72rem;color:var(--text-muted);display:block;margin-top:3px;">PDF, JPG, PNG — ไม่เกิน 10MB</span>
+            <span id="rep-parts-file-name" style="color:var(--success);font-weight:600;font-size:.9rem;display:block;margin-top:8px;"></span>
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="submitPartsIssue()"><i data-lucide="check"></i>ยืนยันจ่ายอะไหล่ → อยู่ระหว่างซ่อม</button>
+      </div>
+
+      <!-- STAGE 7: ช่างซ่อมเสร็จ -->
+      <div id="stage-box-ready-return" class="panel" style="display:none;">
+        <h4 style="margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px;"><i data-lucide="wrench"></i>ขั้นที่ 7: ซ่อมเสร็จ — บันทึกผลการซ่อม</h4>
+        <div class="form-group">
+          <label class="form-label">สรุปผลการซ่อม <span style="color:var(--danger)">*</span></label>
+          <textarea id="rep-repair-result" class="form-control" rows="3" placeholder="สรุปขั้นตอนการซ่อมและผลลัพธ์..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">อะไหล่ที่ใช้จริง (ยืนยัน)</label>
+          <div id="rep-actual-parts-summary" style="font-size:.85rem;color:var(--text-secondary);padding:10px;background:rgba(0,0,0,.02);border-radius:var(--radius-sm);"></div>
+        </div>
+        <div style="background:rgba(99,102,241,.05);border:1px solid rgba(99,102,241,.12);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:.82rem;color:var(--text-secondary);">
+          <i data-lucide="info" style="width:13px;height:13px;display:inline;vertical-align:middle;color:var(--primary);"></i>
+          <strong>พิมพ์รายงานการซ่อม</strong> → สถานะเปลี่ยนเป็น <strong>"รอส่งคืน"</strong>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="printAndAdvanceRepairReport()">
+          <i data-lucide="printer"></i>พิมพ์รายงานการซ่อม → เปลี่ยนสถานะ "รอส่งคืน"
+        </button>
+      </div>
+
+      <!-- STAGE 8: ออกใบส่งคืน -->
+      <div id="stage-box-returning" class="panel" style="display:none;">
+        <h4 style="margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px;"><i data-lucide="truck"></i>ขั้นที่ 8: ออกใบส่งคืนสินค้า</h4>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">เลขที่ใบส่งคืน <span style="color:var(--danger)">*</span></label>
+            <input type="text" id="rep-ret-no" class="form-control" placeholder="DN-2026-XXXX">
+          </div>
+          <div class="form-group">
+            <label class="form-label">วันที่ส่งคืน</label>
+            <input type="date" id="rep-ret-date" class="form-control">
+          </div>
+        </div>
+        <div style="background:rgba(99,102,241,.05);border:1px solid rgba(99,102,241,.12);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:.82rem;color:var(--text-secondary);">
+          <i data-lucide="info" style="width:13px;height:13px;display:inline;vertical-align:middle;color:var(--primary);"></i>
+          <strong>พิมพ์ใบส่งคืน</strong> → สถานะเปลี่ยนเป็น <strong>"อยู่ระหว่างส่งคืน"</strong>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="printAndAdvanceReturnSlip()">
+          <i data-lucide="printer"></i>พิมพ์ใบส่งคืน → เปลี่ยนสถานะ "อยู่ระหว่างส่งคืน"
+        </button>
+      </div>
+
+      <!-- STAGE 9: ปิดงาน -->
+      <div id="stage-box-close" class="panel" style="display:none;">
+        <h4 style="margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px;"><i data-lucide="lock"></i>ขั้นที่ 9: ปิดงานซ่อม</h4>
+        <div class="form-group">
+          <label class="form-label">อัปโหลดใบส่งของที่ลูกค้าเซ็นรับแล้ว <span style="color:var(--danger)">*</span></label>
+          <div class="file-upload-zone" onclick="simulateFileUpload('rep-close-file')">
+            <i data-lucide="file-check-2"></i><p>คลิกอัปโหลด เอกสารปิดงาน</p><span style="font-size:.72rem;color:var(--text-muted);display:block;margin-top:3px;">PDF, JPG, PNG — ไม่เกิน 10MB</span>
+            <span id="rep-close-file-name" style="color:var(--success);font-weight:600;font-size:.9rem;display:block;margin-top:8px;"></span>
+          </div>
+        </div>
+        <button type="button" class="btn btn-danger" onclick="submitRepairClose()"><i data-lucide="lock"></i>ยืนยันปิดงานซ่อม</button>
+      </div>
+
+      <!-- History Files -->
+      <div class="panel" id="rep-history-files-panel" style="display:none;margin-top:12px;">
+        <h4 style="margin-bottom:10px;display:flex;align-items:center;gap:8px;font-size:.9rem;"><i data-lucide="folder-open"></i>เอกสารและ Timestamp</h4>
+        <div id="rep-history-files-list"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Invoice -->
+<div class="modal-overlay" id="modal-invoice-viewer">
+  <div class="modal-container" style="max-width:860px;background:#f8fafc;">
+    <div class="modal-header" style="border-bottom:1px solid #cbd5e1;">
+      <h3 class="modal-title" style="color:#1e293b;">พิมพ์ใบเสนอราคา</h3>
+      <div>
+        <button class="btn btn-secondary btn-sm" onclick="window.print()"><i data-lucide="printer"></i>พิมพ์</button>
+        <button class="modal-close" onclick="closeModal('modal-invoice-viewer')" style="margin-left:12px;">&times;</button>
+      </div>
+    </div>
+    <div class="modal-body" style="background:#f1f5f9;padding:20px;">
+      <div class="invoice-sheet" id="invoice-sheet-content"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Register Onsite -->
+<div class="modal-overlay" id="modal-register-onsite">
+  <div class="modal-container">
+    <div class="modal-header">
+      <h3 class="modal-title">ลงทะเบียนรับแจ้งงาน Onsite / Oncall</h3>
+      <button class="modal-close" onclick="closeModal('modal-register-onsite')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-register-onsite">
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">เลขที่งาน (Auto)</label><input type="text" id="ons-reg-id" class="form-control" readonly></div>
+          <div class="form-group"><label class="form-label">วันที่รับแจ้ง</label><input type="text" id="ons-reg-date" class="form-control" readonly></div>
+        </div>
+        <h4 style="margin:12px 0 8px;color:var(--primary);font-size:.9rem;border-bottom:1px solid var(--border-color);padding-bottom:6px;">ข้อมูลสินค้าและลูกค้า</h4>
+        <div class="form-group">
+          <label class="form-label">ค้นหาจาก Serial Number <span style="color:var(--danger)">*</span></label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="ons-reg-sn" class="form-control" readonly placeholder="คลิกเพื่อเลือก S/N ในระบบ..." required>
+            <button type="button" class="btn btn-secondary btn-icon-only" onclick="openPicker('delivered','ons-reg-sn-id-holder','ons-reg-sn')"><i data-lucide="search"></i></button>
+          </div>
+          <input type="hidden" id="ons-reg-sn-id-holder">
+          <input type="hidden" id="ons-reg-prod-id">
+          <input type="hidden" id="ons-reg-cust-id">
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">สินค้า / Brand</label><input type="text" id="ons-reg-prod-display" class="form-control" readonly></div>
+          <div class="form-group"><label class="form-label">ลูกค้า / เขต</label><input type="text" id="ons-reg-cust-display" class="form-control" readonly></div>
+        </div>
+        <div class="form-group"><label class="form-label">อุปกรณ์ประกอบ</label><input type="text" id="ons-reg-accessories" class="form-control" placeholder="เช่น Transducer, สายอุปกรณ์..."></div>
+        <div style="font-size:.8rem;color:var(--primary);margin-bottom:12px;" id="ons-reg-zone-hint"></div>
+
+        <h4 style="margin:12px 0 8px;color:var(--primary);font-size:.9rem;border-bottom:1px solid var(--border-color);padding-bottom:6px;">ผู้ติดต่อและรายละเอียด</h4>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">แผนก <span style="color:var(--danger)">*</span></label><input type="text" id="ons-reg-dept" class="form-control" placeholder="เช่น ICU, ER..." required></div>
+          <div class="form-group"><label class="form-label">ผู้ติดต่อ <span style="color:var(--danger)">*</span></label><input type="text" id="ons-reg-contact" class="form-control" placeholder="ชื่อแพทย์/พยาบาล..." required></div>
+        </div>
+        <div class="form-group"><label class="form-label">เบอร์โทร <span style="color:var(--danger)">*</span></label><input type="text" id="ons-reg-phone" class="form-control" placeholder="เบอร์ติดต่อ..." required></div>
+        <div class="form-group"><label class="form-label">อาการชำรุด <span style="color:var(--danger)">*</span></label><textarea id="ons-reg-symptom" class="form-control" rows="3" placeholder="ระบุอาการ..." required></textarea></div>
+
+        <div class="form-group">
+          <label class="form-label">มอบหมายช่าง <span style="color:var(--danger)">*</span></label>
+          <select id="ons-reg-assigned-to" class="form-control" required><option value="">-- เลือกช่าง --</option></select>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-register-onsite')">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary">จ่ายงานช่าง Onsite</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Onsite Progress -->
+<div class="modal-overlay" id="modal-onsite-progress">
+  <div class="modal-container" style="max-width:660px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="ons-prog-title">บันทึกผลการบริการ Onsite/Oncall</h3>
+      <button class="modal-close" onclick="closeModal('modal-onsite-progress')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;font-size:.875rem;background:rgba(0,0,0,.02);padding:16px;border-radius:var(--radius-md);">
+        <div>
+          <p style="margin-bottom:6px;"><strong>สินค้า:</strong> <span id="ons-prog-lbl-product">-</span></p>
+          <p style="margin-bottom:6px;"><strong>S/N:</strong> <span id="ons-prog-lbl-sn">-</span></p>
+          <p style="margin-bottom:6px;"><strong>ลูกค้า:</strong> <span id="ons-prog-lbl-customer">-</span></p>
+          <p><strong>แผนก:</strong> <span id="ons-prog-lbl-dept">-</span></p>
+        </div>
+        <div>
+          <p style="margin-bottom:6px;"><strong>ผู้ติดต่อ:</strong> <span id="ons-prog-lbl-contact">-</span></p>
+          <p style="margin-bottom:6px;"><strong>โทร:</strong> <span id="ons-prog-lbl-phone">-</span></p>
+          <p style="margin-bottom:6px;"><strong>ช่างรับผิดชอบ:</strong> <span id="ons-prog-lbl-engineer">-</span></p>
+          <p><strong>อาการ:</strong> <span id="ons-prog-lbl-symptom" style="color:var(--warning);">-</span></p>
+        </div>
+      </div>
+      <form id="form-onsite-progress">
+        <input type="hidden" id="ons-prog-id">
+        <div class="form-group">
+          <label class="form-label">ประเภทการบริการ <span style="color:var(--danger)">*</span></label>
+          <div style="display:flex;gap:20px;margin-top:8px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.875rem;">
+              <input type="radio" name="ons-prog-type" id="ons-radio-oncall" value="oncall" onchange="toggleOnsiteFields()"> <strong>Oncall</strong> — แก้ไขทางโทรศัพท์/ออนไลน์
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.875rem;">
+              <input type="radio" name="ons-prog-type" id="ons-radio-onsite" value="onsite" onchange="toggleOnsiteFields()"> <strong>Onsite</strong> — เดินทางไปหน้างาน
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">วิธีแก้ไข / ผลการบริการ <span style="color:var(--danger)">*</span></label>
+          <textarea id="ons-prog-solution" class="form-control" rows="4" placeholder="บันทึกวิธีแก้ไขและผลลัพธ์..." required></textarea>
+        </div>
+        <div id="ons-report-upload-sec" style="display:none;">
+          <div class="form-group">
+            <label class="form-label">อัปโหลด Service Report (Onsite) <span style="color:var(--danger)">*</span></label>
+            <div class="file-upload-zone" onclick="simulateFileUpload('ons-close-file')">
+              <i data-lucide="file-check-2"></i>
+              <p>คลิกอัปโหลด Service Report</p><span style="font-size:.72rem;color:var(--text-muted);display:block;margin-top:3px;">PDF, JPG, PNG — ไม่เกิน 10MB</span>
+              <span id="ons-close-file-name" style="color:var(--success);font-weight:600;font-size:.9rem;display:block;margin-top:8px;"></span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-onsite-progress')">ยกเลิก</button>
+          <button type="submit" class="btn btn-success">ยืนยันปิดงาน</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Delivered Product Register / Edit -->
+<div class="modal-overlay" id="modal-register-delivered">
+  <div class="modal-container" style="max-width:680px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="del-modal-title">ลงทะเบียนส่งมอบเครื่องมือแพทย์</h3>
+      <button class="modal-close" onclick="closeModal('modal-register-delivered')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-register-delivered">
+        <input type="hidden" id="del-reg-mode" value="new"><!-- new | edit -->
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Serial Number (S/N) <span style="color:var(--danger)">*</span></label>
+            <input type="text" id="del-reg-sn" class="form-control" placeholder="SN-XXXX-XXX" required style="font-family:monospace;font-weight:600;">
+          </div>
+          <div class="form-group">
+            <label class="form-label">วันที่ส่งมอบ <span style="color:var(--danger)">*</span></label>
+            <input type="date" id="del-reg-date" class="form-control" required oninput="calcDeliveredExpiry()">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">เครื่องมือแพทย์ <span style="color:var(--danger)">*</span></label>
+          <select id="del-reg-prod-id" class="form-control" required><option value="">-- เลือกสินค้า --</option></select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">โรงพยาบาล / ลูกค้า <span style="color:var(--danger)">*</span></label>
+          <select id="del-reg-cust-id" class="form-control" required><option value="">-- เลือกลูกค้า --</option></select>
+        </div>
+
+        <!-- แผนก (datalist + free type) -->
+        <div class="form-group">
+          <label class="form-label">แผนก / หน่วยงานที่ดูแล</label>
+          <input type="text" id="del-reg-dept" class="form-control" list="dept-list-delivered"
+            placeholder="เช่น ICU, ER, ห้องผ่าตัด, รังสีวิทยา..." autocomplete="off">
+          <datalist id="dept-list-delivered">
+            <option value="ICU (หน่วยผู้ป่วยวิกฤต)">
+            <option value="ER (ห้องฉุกเฉิน)">
+            <option value="ห้องผ่าตัด (OR)">
+            <option value="รังสีวิทยา">
+            <option value="ห้องคลอด">
+            <option value="ห้องผู้ป่วยใน">
+            <option value="ห้องผู้ป่วยนอก (OPD)">
+            <option value="กายภาพบำบัด">
+            <option value="ห้องปฏิบัติการ">
+            <option value="โภชนาการ">
+            <option value="จิตเวช">
+            <option value="ทันตกรรม">
+            <option value="จักษุวิทยา">
+            <option value="ENT (หู คอ จมูก)">
+            <option value="สูติ-นรีเวช">
+            <option value="กุมารเวช">
+            <option value="อายุรกรรม">
+            <option value="ศัลยกรรม">
+            <option value="ออร์โธปิดิกส์">
+          </datalist>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">ระยะประกัน (ปี) <span style="color:var(--danger)">*</span></label>
+            <input type="number" id="del-reg-warranty-years" class="form-control" min="1" max="10" value="2" required oninput="calcDeliveredExpiry()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">วันหมดประกัน <span style="color:var(--danger)">*</span></label>
+            <div style="position:relative;">
+              <input type="date" id="del-reg-expiry" class="form-control" required readonly
+                style="background:rgba(16,185,129,.05);border-color:rgba(16,185,129,.3);font-weight:600;">
+              <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:.7rem;color:var(--success);pointer-events:none;">คำนวณอัตโนมัติ</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">รอบ PM (เดือน) <span style="color:var(--danger)">*</span></label>
+          <select id="del-reg-pm-interval" class="form-control" required>
+            <option value="3">ทุก 3 เดือน (รายไตรมาส)</option>
+            <option value="6" selected>ทุก 6 เดือน (ครึ่งปี)</option>
+            <option value="12">ทุก 12 เดือน (รายปี)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">อัปโหลดเอกสาร</label>
+          <div class="file-upload-zone" onclick="simulateFileUpload('del-reg-file')">
+            <i data-lucide="upload-cloud"></i>
+            <p>Warranty Card, Installation Report, Contract</p>
+            <span id="del-reg-file-name" style="color:var(--success);font-weight:600;font-size:.9rem;display:block;margin-top:8px;"></span>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-register-delivered')">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary" id="del-submit-btn"><i data-lucide="save"></i>บันทึกการส่งมอบ</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: PM Progress -->
+<div class="modal-overlay" id="modal-pm-progress">
+  <div class="modal-container" style="max-width:580px;">
+    <div class="modal-header">
+      <h3 class="modal-title">บันทึกผลการตรวจ PM</h3>
+      <button class="modal-close" onclick="closeModal('modal-pm-progress')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-pm-progress">
+        <input type="hidden" id="pm-prog-id">
+        <div style="background:rgba(0,0,0,.02);border-radius:var(--radius-md);padding:16px;margin-bottom:20px;font-size:.875rem;">
+          <p style="margin-bottom:6px;"><strong>รหัสแผน:</strong> <span id="pm-prog-lbl-id" style="font-family:monospace;color:var(--primary);"></span></p>
+          <p style="margin-bottom:6px;"><strong>S/N:</strong> <span id="pm-prog-lbl-sn"></span></p>
+          <p style="margin-bottom:6px;"><strong>สินค้า:</strong> <span id="pm-prog-lbl-product"></span></p>
+          <p style="margin-bottom:6px;"><strong>ลูกค้า:</strong> <span id="pm-prog-lbl-customer"></span></p>
+          <p><strong>เดือนที่กำหนด:</strong> <span id="pm-prog-lbl-month"></span></p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">อัปโหลด PM Service Report <span style="color:var(--danger)">*</span></label>
+          <div class="file-upload-zone" onclick="simulateFileUpload('pm-close-file')">
+            <i data-lucide="file-check-2"></i>
+            <p>คลิกจำลองอัปโหลดรายงาน PM</p>
+            <span id="pm-close-file-name" style="color:var(--success);font-weight:600;font-size:.9rem;display:block;margin-top:8px;"></span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-pm-progress')">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary">ยืนยัน PM เสร็จสิ้น</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Warehouse IN -->
+<div class="modal-overlay" id="modal-warehouse-in">
+  <div class="modal-container" style="max-width:660px;">
+    <div class="modal-header">
+      <h3 class="modal-title">รับอะไหล่เข้าคลัง (Stock IN)</h3>
+      <button class="modal-close" onclick="closeModal('modal-warehouse-in')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-warehouse-in">
+        <div class="form-group"><label class="form-label">เลขที่เอกสารอ้างอิง <span style="color:var(--danger)">*</span></label><input type="text" id="wh-in-ref" class="form-control" placeholder="Invoice / บิลซื้อ..." required></div>
+        <label class="form-label" style="margin-top:12px;display:block;">รายการอะไหล่:</label>
+        <div id="wh-in-items-list" style="margin-bottom:16px;"></div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="addBulkInRow()" style="margin-bottom:20px;"><i data-lucide="plus"></i>เพิ่มแถว</button>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-warehouse-in')">ยกเลิก</button>
+          <button type="submit" class="btn btn-success"><i data-lucide="arrow-down-to-line"></i>ยืนยันรับเข้าสต็อก</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Warehouse OUT -->
+<div class="modal-overlay" id="modal-warehouse-out">
+  <div class="modal-container" style="max-width:600px;">
+    <div class="modal-header">
+      <h3 class="modal-title">เบิกจ่ายอะไหล่ออกคลัง (Stock OUT)</h3>
+      <button class="modal-close" onclick="closeModal('modal-warehouse-out')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-warehouse-out">
+        <div class="form-group"><label class="form-label">เลขที่ใบเบิก / รหัสงาน <span style="color:var(--danger)">*</span></label><input type="text" id="wh-out-ref" class="form-control" placeholder="MESRJ... หรือเลขอ้างอิง..." required></div>
+        <label class="form-label" style="margin-top:12px;display:block;">รายการอะไหล่ที่เบิก:</label>
+        <div id="wh-out-items-list" style="margin-bottom:16px;"></div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="addBulkOutRow()" style="margin-bottom:20px;"><i data-lucide="plus"></i>เพิ่มแถว</button>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-warehouse-out')">ยกเลิก</button>
+          <button type="submit" class="btn btn-danger"><i data-lucide="arrow-up-from-line"></i>ยืนยันตัด Stock</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: User Register -->
+<div class="modal-overlay" id="modal-register-user">
+  <div class="modal-container" style="max-width:500px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="user-modal-title">เพิ่มผู้ใช้งานใหม่</h3>
+      <button class="modal-close" onclick="closeModal('modal-register-user')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-register-user">
+        <input type="hidden" id="user-reg-id">
+        <div class="form-group"><label class="form-label">Username <span style="color:var(--danger)">*</span></label><input type="text" id="user-reg-username" class="form-control" placeholder="somchai_eng" required></div>
+        <div class="form-group"><label class="form-label">Password <span style="color:var(--danger)">*</span></label><input type="password" id="user-reg-password" class="form-control" required></div>
+        <div class="form-group"><label class="form-label">ชื่อ-นามสกุล <span style="color:var(--danger)">*</span></label><input type="text" id="user-reg-fullname" class="form-control" required></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">บทบาท <span style="color:var(--danger)">*</span></label>
+            <select id="user-reg-role" class="form-control" required>
+              <option value="engineer">วิศวกร/ช่างบริการ</option>
+              <option value="admin">ธุรการบริการ</option>
+              <option value="supervisor">หัวหน้าฝ่าย</option>
+              <option value="manager">ผู้จัดการ</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">เขตดูแล <span style="color:var(--danger)">*</span></label>
+            <select id="user-reg-zone" class="form-control" required>
+              <option value="Central">ภาคกลาง</option>
+              <option value="North">ภาคเหนือ</option>
+              <option value="South">ภาคใต้</option>
+              <option value="East">ภาคตะวันออก</option>
+              <option value="West">ภาคตะวันตก</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-register-user')">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary">บันทึกข้อมูล</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Master Customer -->
+<div class="modal-overlay" id="modal-master-customer">
+  <div class="modal-container" style="max-width:560px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="cust-modal-title">เพิ่ม / แก้ไขลูกค้า</h3>
+      <button class="modal-close" onclick="closeModal('modal-master-customer')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-master-customer">
+        <input type="hidden" id="cust-form-id">
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">รหัสลูกค้า</label><input type="text" id="cust-form-cid" class="form-control" readonly></div>
+          <div class="form-group">
+            <label class="form-label">เขตการขาย/บริการ <span style="color:var(--danger)">*</span></label>
+            <select id="cust-form-zone" class="form-control" required>
+              <option value="">-- เลือกเขต --</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group"><label class="form-label">ชื่อโรงพยาบาล / หน่วยงาน <span style="color:var(--danger)">*</span></label><input type="text" id="cust-form-name" class="form-control" required></div>
+        <div class="form-group"><label class="form-label">ที่อยู่</label><input type="text" id="cust-form-address" class="form-control"></div>
+        <div class="form-group">
+          <label class="form-label">จังหวัด <span style="color:var(--danger)">*</span></label>
+          <input type="text" id="cust-form-province" class="form-control" list="thai-provinces-list" placeholder="พิมพ์หรือเลือกจังหวัด..." required autocomplete="off">
+          <datalist id="thai-provinces-list">
+            <option value="กรุงเทพมหานคร"><option value="กระบี่"><option value="กาญจนบุรี"><option value="กาฬสินธุ์"><option value="กำแพงเพชร">
+            <option value="ขอนแก่น"><option value="จันทบุรี"><option value="ฉะเชิงเทรา"><option value="ชลบุรี"><option value="ชัยนาท">
+            <option value="ชัยภูมิ"><option value="ชุมพร"><option value="เชียงราย"><option value="เชียงใหม่"><option value="ตรัง">
+            <option value="ตราด"><option value="ตาก"><option value="นครนายก"><option value="นครปฐม"><option value="นครพนม">
+            <option value="นครราชสีมา"><option value="นครศรีธรรมราช"><option value="นครสวรรค์"><option value="นนทบุรี"><option value="นราธิวาส">
+            <option value="น่าน"><option value="บึงกาฬ"><option value="บุรีรัมย์"><option value="ปทุมธานี"><option value="ประจวบคีรีขันธ์">
+            <option value="ปราจีนบุรี"><option value="ปัตตานี"><option value="พระนครศรีอยุธยา"><option value="พะเยา"><option value="พังงา">
+            <option value="พัทลุง"><option value="พิจิตร"><option value="พิษณุโลก"><option value="เพชรบุรี"><option value="เพชรบูรณ์">
+            <option value="แพร่"><option value="ภูเก็ต"><option value="มหาสารคาม"><option value="มุกดาหาร"><option value="แม่ฮ่องสอน">
+            <option value="ยโสธร"><option value="ยะลา"><option value="ร้อยเอ็ด"><option value="ระนอง"><option value="ระยอง">
+            <option value="ราชบุรี"><option value="ลพบุรี"><option value="ลำปาง"><option value="ลำพูน"><option value="เลย">
+            <option value="ศรีสะเกษ"><option value="สกลนคร"><option value="สงขลา"><option value="สตูล"><option value="สมุทรปราการ">
+            <option value="สมุทรสงคราม"><option value="สมุทรสาคร"><option value="สระแก้ว"><option value="สระบุรี"><option value="สิงห์บุรี">
+            <option value="สุโขทัย"><option value="สุพรรณบุรี"><option value="สุราษฎร์ธานี"><option value="สุรินทร์"><option value="หนองคาย">
+            <option value="หนองบัวลำภู"><option value="อ่างทอง"><option value="อำนาจเจริญ"><option value="อุดรธานี"><option value="อุตรดิตถ์">
+            <option value="อุทัยธานี"><option value="อุบลราชธานี">
+          </datalist>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-master-customer')">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary">บันทึก</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Master Product -->
+<div class="modal-overlay" id="modal-master-product">
+  <div class="modal-container" style="max-width:500px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="prod-modal-title">เพิ่ม / แก้ไขสินค้า</h3>
+      <button class="modal-close" onclick="closeModal('modal-master-product')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-master-product">
+        <input type="hidden" id="prod-form-id">
+        <div class="form-group"><label class="form-label">รหัสสินค้า</label><input type="text" id="prod-form-pid" class="form-control" readonly></div>
+        <div class="form-group"><label class="form-label">ชื่อเครื่องมือแพทย์ <span style="color:var(--danger)">*</span></label><input type="text" id="prod-form-name" class="form-control" required></div>
+        <div class="form-group"><label class="form-label">ยี่ห้อ / Brand <span style="color:var(--danger)">*</span></label><input type="text" id="prod-form-brand" class="form-control" required></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-master-product')">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary">บันทึก</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Master Part -->
+<div class="modal-overlay" id="modal-master-part">
+  <div class="modal-container" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="part-modal-title">เพิ่ม / แก้ไขอะไหล่</h3>
+      <button class="modal-close" onclick="closeModal('modal-master-part')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-master-part">
+        <input type="hidden" id="part-form-id">
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">รหัสอะไหล่</label><input type="text" id="part-form-pid" class="form-control" readonly></div>
+          <div class="form-group"><label class="form-label">รหัสสินค้า (Part Code) <span style="color:var(--danger)">*</span></label><input type="text" id="part-form-code" class="form-control" required placeholder="PART-XX-000"></div>
+        </div>
+        <div class="form-group"><label class="form-label">ชื่ออะไหล่ <span style="color:var(--danger)">*</span></label><input type="text" id="part-form-name" class="form-control" required></div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">สต็อกเริ่มต้น <span style="color:var(--danger)">*</span></label><input type="number" id="part-form-stock" class="form-control" min="0" value="0" required></div>
+          <div class="form-group"><label class="form-label">Min Stock <span style="color:var(--danger)">*</span></label><input type="number" id="part-form-min-stock" class="form-control" min="1" value="3" required></div>
+        </div>
+        <div class="form-group"><label class="form-label">ราคาขาย/ชิ้น (บาท) <span style="color:var(--danger)">*</span></label><input type="number" id="part-form-price" class="form-control" min="0" required></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-master-part')">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary">บันทึก</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Picker -->
+<div class="modal-overlay" id="modal-picker">
+  <div class="modal-container" style="max-width:580px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="picker-modal-title">ค้นหาข้อมูล</h3>
+      <button class="modal-close" onclick="closePickerModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:14px;">
+        <input type="text" id="picker-search-input" class="form-control" placeholder="พิมพ์เพื่อค้นหา..." oninput="searchPickerList()">
+      </div>
+      <div class="picker-list" id="picker-items-container"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Device History (SN History) -->
+<div class="modal-overlay" id="modal-device-history">
+  <div class="modal-container" style="max-width:860px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="dh-modal-title">ประวัติงานเครื่อง</h3>
+      <button class="modal-close" onclick="closeModal('modal-device-history')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <!-- Device Info Card -->
+      <div id="dh-device-info" style="background:linear-gradient(135deg,rgba(99,102,241,.07),rgba(6,182,212,.04));border:1px solid rgba(99,102,241,.15);border-radius:var(--radius-md);padding:16px 20px;margin-bottom:20px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;font-size:.85rem;">
+        <div><div style="font-size:.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">สินค้า / Brand</div><div id="dh-info-product" style="font-weight:700;color:#0f172a;">-</div></div>
+        <div><div style="font-size:.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Serial Number</div><div id="dh-info-sn" style="font-family:monospace;font-weight:700;color:var(--primary);">-</div></div>
+        <div><div style="font-size:.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">ลูกค้า / โรงพยาบาล</div><div id="dh-info-cust" style="font-weight:600;">-</div></div>
+        <div><div style="font-size:.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">แผนก</div><div id="dh-info-dept" style="font-weight:600;">-</div></div>
+        <div><div style="font-size:.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">วันส่งมอบ</div><div id="dh-info-date">-</div></div>
+        <div><div style="font-size:.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">สถานะประกัน</div><div id="dh-info-warranty">-</div></div>
+      </div>
+
+      <!-- Repair History -->
+      <div style="margin-bottom:20px;">
+        <h4 style="font-size:.9rem;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px;color:#0f172a;">
+          <i data-lucide="wrench" style="width:16px;height:16px;color:var(--primary);"></i>ประวัติงานซ่อม
+          <span id="dh-repair-count" class="badge badge-registered">0 รายการ</span>
+        </h4>
+        <div class="table-responsive">
+          <table class="custom-table">
+            <thead><tr><th>เลขที่งาน</th><th>วันที่รับ</th><th>อาการ</th><th>ผลตรวจ</th><th>สถานะ</th></tr></thead>
+            <tbody id="dh-repair-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PM History -->
+      <div>
+        <h4 style="font-size:.9rem;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px;color:#0f172a;">
+          <i data-lucide="calendar-check" style="width:16px;height:16px;color:var(--warning);"></i>ประวัติแผน PM
+          <span id="dh-pm-count" class="badge badge-warning">0 รายการ</span>
+        </h4>
+        <div class="table-responsive">
+          <table class="custom-table">
+            <thead><tr><th>รหัสแผน PM</th><th>เดือนที่กำหนด</th><th>สถานะ</th><th>วันที่บันทึก</th><th>ผู้ดำเนินการ</th><th>เอกสาร</th></tr></thead>
+            <tbody id="dh-pm-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Company Settings -->
+<div class="modal-overlay" id="modal-company-settings">
+  <div class="modal-container" style="max-width:560px;">
+    <div class="modal-header">
+      <h3 class="modal-title">แก้ไขข้อมูลบริษัท</h3>
+      <button class="modal-close" onclick="closeModal('modal-company-settings')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-company-settings">
+        <div class="form-group">
+          <label class="form-label">ชื่อบริษัท / สำนักงาน <span style="color:var(--danger)">*</span></label>
+          <input type="text" id="co-name" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">ที่อยู่ <span style="color:var(--danger)">*</span></label>
+          <textarea id="co-address" class="form-control" rows="2" required></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">โทรศัพท์ <span style="color:var(--danger)">*</span></label>
+            <input type="text" id="co-tel" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">เลขผู้เสียภาษี <span style="color:var(--danger)">*</span></label>
+            <input type="text" id="co-tax-id" class="form-control" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">อีเมล</label>
+            <input type="email" id="co-email" class="form-control">
+          </div>
+          <div class="form-group">
+            <label class="form-label">เว็บไซต์</label>
+            <input type="text" id="co-website" class="form-control">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-company-settings')">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary"><i data-lucide="save"></i>บันทึกข้อมูลบริษัท</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Reassign Engineer -->
+<div class="modal-overlay" id="modal-reassign-engineer">
+  <div class="modal-container" style="max-width:480px;">
+    <div class="modal-header">
+      <h3 class="modal-title">เปลี่ยนผู้รับผิดชอบงาน</h3>
+      <button class="modal-close" onclick="closeModal('modal-reassign-engineer')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="reassign-job-id">
+      <input type="hidden" id="reassign-table">
+      <div style="background:rgba(99,102,241,.05);border:1px solid rgba(99,102,241,.15);border-radius:var(--radius-md);padding:14px;margin-bottom:18px;">
+        <div style="font-size:.82rem;color:var(--text-secondary);margin-bottom:6px;">งานหมายเลข</div>
+        <div id="reassign-job-info" style="font-weight:700;font-family:monospace;color:var(--primary);font-size:1rem;"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">ผู้รับผิดชอบงานปัจจุบัน</label>
+        <input type="text" id="reassign-current-eng" class="form-control" readonly style="background:rgba(0,0,0,.03);">
+      </div>
+      <div class="form-group">
+        <label class="form-label">เปลี่ยนเป็น <span style="color:var(--danger)">*</span></label>
+        <select id="reassign-new-eng" class="form-control" required>
+          <option value="">-- เลือกวิศวกร/ช่าง --</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">หมายเหตุการโอนงาน</label>
+        <input type="text" id="reassign-note" class="form-control" placeholder="ระบุเหตุผลการโอน...">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-reassign-engineer')">ยกเลิก</button>
+        <button type="button" class="btn btn-primary" onclick="submitReassignEngineer()"><i data-lucide="user-check"></i>ยืนยันโอนงาน</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Master Zone -->
+<div class="modal-overlay" id="modal-master-zone">
+  <div class="modal-container" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="zone-modal-title">เพิ่ม / แก้ไขเขตการขาย</h3>
+      <button class="modal-close" onclick="closeModal('modal-master-zone')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-master-zone">
+        <input type="hidden" id="zone-form-id">
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">รหัสเขต</label><input type="text" id="zone-form-zid" class="form-control" readonly></div>
+          <div class="form-group"><label class="form-label">ชื่อเขต <span style="color:var(--danger)">*</span></label><input type="text" id="zone-form-name" class="form-control" required placeholder="เช่น ภาคเหนือ, ภาคกลาง..."></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">ช่าง/วิศวกรประจำเขต</label>
+          <select id="zone-form-engineer" class="form-control">
+            <option value="">-- ยังไม่มอบหมาย --</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">ผู้แทนขายประจำเขต</label>
+          <input type="text" id="zone-form-sales-rep" class="form-control" placeholder="ชื่อผู้แทนขาย...">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-master-zone')">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary"><i data-lucide="save"></i>บันทึก</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- CDN SCRIPTS -->
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="db.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
