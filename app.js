@@ -15,6 +15,13 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     lucide.createIcons();
+    // ตรวจ URL param ?track=JOBID ก่อน — ถ้ามีให้แสดงหน้า tracking (ไม่ต้อง login)
+    var params = new URLSearchParams(window.location.search);
+    var trackId = params.get('track');
+    if (trackId) {
+      showTrackingPage(trackId);
+      return;
+    }
     checkSession();
     setupFormListeners();
     document.addEventListener('click', function (e) {
@@ -25,6 +32,148 @@
       }
     });
   });
+
+  // ==================== CUSTOMER TRACKING (via QR) ====================
+  window.showTrackingPage = function(jobId) {
+    var job = DB.find('repair_jobs','id',jobId);
+    var co  = getCompanyInfo();
+
+    var loginV = document.getElementById('view-login');
+    var mainV  = document.getElementById('view-main');
+    if (loginV) loginV.style.display = 'none';
+    if (mainV)  mainV.style.display = 'none';
+
+    var container = document.getElementById('view-tracking');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'view-tracking';
+      document.body.appendChild(container);
+    }
+    container.style.display = 'block';
+
+    if (!job) {
+      container.innerHTML =
+        '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f1f5f9;font-family:Sarabun,sans-serif;padding:20px;">' +
+          '<div style="background:#fff;border-radius:16px;padding:40px;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:400px;">' +
+            '<div style="font-size:48px;margin-bottom:16px;">🔍</div>' +
+            '<h2 style="font-size:18px;color:#0f172a;margin-bottom:8px;">ไม่พบข้อมูลงานซ่อม</h2>' +
+            '<p style="font-size:14px;color:#64748b;">หมายเลข: ' + jobId + '</p>' +
+          '</div>' +
+        '</div>';
+      return;
+    }
+
+    var prod = DB.find('products','id',job.product_id) || {};
+    var cust = DB.find('customers','id',job.customer_id) || {};
+    var prodName = prod.name || job.product_name || '-';
+    var prodBrand= prod.brand || job.product_brand || '-';
+    var ts = job.timestamps || {};
+    var wc = job.warranty_condition || 'out_warranty';
+    var claimRejected = !!ts['claim_rejected'];
+    var isClaimPath = (wc === 'in_warranty') && !claimRejected;
+    var isPoRejected = job.po_rejected === true;
+    var hasParts = (job.parts_needed||[]).length > 0;
+    var wentParts = !!ts['parts_issued'];
+
+    var tlSteps = [];
+    function tlAdd(key, label, icon) { tlSteps.push({ key:key, label:label, icon:icon }); }
+
+    tlAdd('registered', 'รับเครื่องเข้าศูนย์', 'clipboard-check');
+    tlAdd('checked', 'ตรวจเช็คอาการ', 'search');
+    if (isClaimPath) {
+      tlAdd('claim_sent', 'ส่งเคลมประกัน', 'shield');
+      tlAdd('claim_approved', 'อนุมัติเคลม', 'shield-check');
+      if (hasParts || wentParts) tlAdd('claimed', 'เบิกอะไหล่', 'package');
+      tlAdd('parts_issued', 'กำลังซ่อม', 'wrench');
+    } else if (claimRejected) {
+      tlAdd('claim_sent', 'ส่งเคลมประกัน', 'shield');
+      tlAdd('claim_rejected', 'เคลมไม่ผ่าน', 'shield-x');
+      tlAdd('quote_printed', 'เสนอราคา', 'file-text');
+      if (!isPoRejected) {
+        if (hasParts || wentParts) tlAdd('po_received', 'เบิกอะไหล่', 'package');
+        tlAdd('parts_issued', 'กำลังซ่อม', 'wrench');
+      }
+    } else {
+      tlAdd('quote_printed', 'เสนอราคา', 'file-text');
+      if (!isPoRejected) {
+        if (hasParts || wentParts) tlAdd('po_received', 'เบิกอะไหล่', 'package');
+        tlAdd('parts_issued', 'กำลังซ่อม', 'wrench');
+      }
+    }
+    tlAdd('ready_return', 'พร้อมส่งคืน', 'check-circle');
+    tlAdd('returning', 'กำลังจัดส่งคืน', 'truck');
+    tlAdd('closed', 'ส่งมอบเรียบร้อย', 'home');
+
+    var curStep = REPAIR_STATUS[job.status] ? REPAIR_STATUS[job.status].step : 1;
+    var curIdx = tlSteps.findIndex(function(s){ return s.key === job.status; });
+    if (curIdx < 0) {
+      for (var ci = tlSteps.length-1; ci >= 0; ci--) {
+        var skStep = REPAIR_STATUS[tlSteps[ci].key] ? REPAIR_STATUS[tlSteps[ci].key].step : 99;
+        if (skStep <= curStep) { curIdx = ci; break; }
+      }
+    }
+    if (curIdx < 0) curIdx = 0;
+
+    var isClosed = job.status === 'closed';
+    var statusLabel = getStatusLabel(job.status);
+
+    var timelineHtml = tlSteps.map(function(s, i) {
+      var done = i < curIdx;
+      var current = i === curIdx;
+      var tsVal = ts[s.key] || '';
+      var dotBg, lineColor, txtColor, iconColor;
+      if (done) { dotBg='#10b981'; lineColor='#10b981'; txtColor='#0f172a'; iconColor='#fff'; }
+      else if (current) { dotBg='#6366f1'; lineColor='#e2e8f0'; txtColor='#6366f1'; iconColor='#fff'; }
+      else { dotBg='#e2e8f0'; lineColor='#e2e8f0'; txtColor='#94a3b8'; iconColor='#94a3b8'; }
+      var pulse = current ? 'animation:trackpulse 1.8s infinite;' : '';
+      return '<div style="display:flex;gap:14px;position:relative;">' +
+        (i < tlSteps.length-1 ? '<div style="position:absolute;left:19px;top:40px;bottom:-16px;width:2px;background:'+lineColor+';"></div>' : '') +
+        '<div style="width:40px;height:40px;border-radius:50%;background:'+dotBg+';display:flex;align-items:center;justify-content:center;flex-shrink:0;z-index:1;'+pulse+'">' +
+          '<i data-lucide="'+s.icon+'" style="width:19px;height:19px;color:'+iconColor+';"></i>' +
+        '</div>' +
+        '<div style="flex:1;padding-bottom:24px;">' +
+          '<div style="font-size:15px;font-weight:'+(current?'800':'600')+';color:'+txtColor+';">'+s.label+(current?' ●':'')+'</div>' +
+          (tsVal ? '<div style="font-size:12px;color:#94a3b8;margin-top:2px;">'+tsVal+'</div>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    container.innerHTML =
+      '<style>@keyframes trackpulse{0%,100%{box-shadow:0 0 0 0 rgba(99,102,241,.5);}50%{box-shadow:0 0 0 8px rgba(99,102,241,0);}}</style>' +
+      '<div style="min-height:100vh;background:linear-gradient(180deg,#6366f1 0%,#6366f1 200px,#f1f5f9 200px);font-family:Sarabun,sans-serif;">' +
+        '<div style="max-width:480px;margin:0 auto;padding:20px 16px 40px;">' +
+          '<div style="text-align:center;padding:16px 0 24px;">' +
+            '<div style="color:rgba(255,255,255,.85);font-size:13px;font-weight:600;margin-bottom:4px;">'+co.name+'</div>' +
+            '<div style="color:#fff;font-size:20px;font-weight:800;">ติดตามสถานะงานซ่อม</div>' +
+          '</div>' +
+          '<div style="background:#fff;border-radius:16px;padding:20px;box-shadow:0 4px 20px rgba(0,0,0,.1);margin-bottom:16px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">' +
+              '<div>' +
+                '<div style="font-size:11px;color:#94a3b8;font-weight:600;">หมายเลขงานซ่อม</div>' +
+                '<div style="font-size:17px;font-weight:800;color:#4f46e5;font-family:monospace;">'+jobId+'</div>' +
+              '</div>' +
+              '<div style="background:'+(isClosed?'#10b981':'#6366f1')+';color:#fff;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700;">'+statusLabel+'</div>' +
+            '</div>' +
+            '<div style="border-top:1px solid #f1f5f9;padding-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">' +
+              '<div><div style="font-size:11px;color:#94a3b8;">เครื่องมือ</div><div style="font-size:14px;font-weight:600;color:#0f172a;">'+prodName+'</div></div>' +
+              '<div><div style="font-size:11px;color:#94a3b8;">ยี่ห้อ</div><div style="font-size:14px;font-weight:600;color:#0f172a;">'+prodBrand+'</div></div>' +
+              '<div><div style="font-size:11px;color:#94a3b8;">S/N</div><div style="font-size:13px;font-weight:600;color:#4f46e5;font-family:monospace;">'+(job.sn||'-')+'</div></div>' +
+              '<div><div style="font-size:11px;color:#94a3b8;">วันที่รับเครื่อง</div><div style="font-size:13px;font-weight:600;color:#0f172a;">'+(job.created_at||'').substring(0,10)+'</div></div>' +
+            '</div>' +
+          '</div>' +
+          '<div style="background:#fff;border-radius:16px;padding:24px 20px;box-shadow:0 4px 20px rgba(0,0,0,.1);">' +
+            '<div style="font-size:15px;font-weight:800;color:#0f172a;margin-bottom:20px;display:flex;align-items:center;gap:8px;"><i data-lucide="route" style="width:18px;height:18px;color:#6366f1;"></i>ความคืบหน้าการซ่อม</div>' +
+            timelineHtml +
+          '</div>' +
+          '<div style="text-align:center;margin-top:20px;font-size:12px;color:#94a3b8;">' +
+            '<div>สอบถามเพิ่มเติม โทร '+(co.tel||'-')+'</div>' +
+            '<div style="margin-top:4px;">อัปเดตล่าสุด: '+nowTs()+'</div>' +
+            '<button onclick="location.reload()" style="margin-top:14px;background:#6366f1;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">🔄 รีเฟรชสถานะ</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    lucide.createIcons();
+  };
 
   // ==================== TOAST ====================
   window.showToast = function (type, title, message, duration) {
@@ -358,16 +507,27 @@
     document.getElementById('dash-stat-pm').textContent = pmDone + ' / ' + pmJobs.length;
     animateCounter('dash-stat-lowstock', parts.filter(function(p){ return p.stock <= p.min_stock; }).length);
 
-    // Performance panel: only show/populate once on role switch, not on tab click
+    // Performance panel: แสดง+populate ก่อน render chart (สำคัญ! ป้องกัน reflow ระหว่างวาดกราฟ)
     var perfPanel = document.getElementById('panel-performance-view');
+    var perfShownNow = false;
     if (user.role === 'manager' || user.role === 'supervisor') {
       if (perfPanel && perfPanel.style.display === 'none') {
         perfPanel.style.display = 'block';
         populatePerformanceUserDropdown();
+        perfShownNow = true;
       }
     }
 
-    renderDashboardCharts(repairs, onsites, pmJobs);
+    // ถ้าเพิ่งแสดง perf panel → รอ 2 frame ให้ layout reflow เสร็จก่อนวาดกราฟ
+    if (perfShownNow) {
+      requestAnimationFrame(function() {
+        requestAnimationFrame(function() {
+          renderDashboardCharts(repairs, onsites, pmJobs);
+        });
+      });
+    } else {
+      renderDashboardCharts(repairs, onsites, pmJobs);
+    }
   }
 
   // ตรวจว่า canvas พร้อมก่อน render chart
@@ -413,16 +573,20 @@
   };
 
   function renderDashboardCharts(repairs, onsites, pmJobs) {
+    // poll จน canvas ทั้งสองมีขนาดจริง แล้วรออีก 1 frame ให้แน่ใจ layout settled
     var tries = 0;
     var timer = setInterval(function() {
       var c1 = document.getElementById('chart-monthly-jobs');
       var c2 = document.getElementById('chart-job-statuses');
-      if ((c1 && c1.offsetWidth > 0 && c2 && c2.offsetWidth > 0) || tries > 30) {
+      var ready = c1 && c1.offsetWidth > 0 && c2 && c2.offsetWidth > 0;
+      if (ready || tries > 40) {
         clearInterval(timer);
-        _renderDashboardChartsNow(repairs, onsites, pmJobs);
+        requestAnimationFrame(function() {
+          _renderDashboardChartsNow(repairs, onsites, pmJobs);
+        });
       }
       tries++;
-    }, 50);
+    }, 40);
   }
 
   function _renderDashboardChartsNow(repairs, onsites, pmJobs) {
@@ -528,16 +692,23 @@
 
   // ==================== REPAIR TABLE ====================
   var REPAIR_STATUS = {
-    registered:    { label:'ลงทะเบียน',          badge:'badge-registered', step:1, color:'#6366f1' },
-    checked:       { label:'กำลังตรวจเช็ค',        badge:'badge-checked',    step:2, color:'#06b6d4' },
-    quoted:        { label:'จัดทำใบเสนอราคา',     badge:'badge-quoted',     step:3, color:'#f59e0b' },
-    quote_printed: { label:'เสนอราคาแล้ว',        badge:'badge-quoted',     step:4, color:'#f59e0b' },
-    claimed:       { label:'เคลมสินค้า',          badge:'badge-po_received',step:4, color:'#10b981' },
-    po_received:   { label:'เบิก/สั่งอะไหล่',     badge:'badge-po_received',step:5, color:'#10b981' },
-    parts_issued:  { label:'อยู่ระหว่างซ่อม',     badge:'badge-onsite',     step:6, color:'#8b5cf6' },
-    ready_return:  { label:'รอส่งคืน',             badge:'badge-warning',    step:7, color:'#f59e0b' },
-    returning:     { label:'อยู่ระหว่างส่งคืน',   badge:'badge-returned',   step:8, color:'#7c3aed' },
-    closed:        { label:'ปิดงาน',               badge:'badge-closed',     step:9, color:'#475569' }
+    registered:      { label:'ลงทะเบียน',          badge:'badge-registered', step:1, color:'#6366f1' },
+    checked:         { label:'กำลังตรวจเช็ค',       badge:'badge-checked',    step:2, color:'#06b6d4' },
+    // ── Claim path ──
+    claim_sent:      { label:'ส่งเคลมแล้ว',         badge:'badge-po_received',step:3, color:'#0ea5e9' },
+    claim_approved:  { label:'เคลมอนุมัติ',          badge:'badge-po_received',step:4, color:'#10b981' },
+    claim_rejected:  { label:'เคลมไม่อนุมัติ',       badge:'badge-danger',     step:4, color:'#ef4444' },
+    // ── Quote path ──
+    quoted:          { label:'จัดทำใบเสนอราคา',     badge:'badge-quoted',     step:3, color:'#f59e0b' },
+    quote_printed:   { label:'เสนอราคาแล้ว',        badge:'badge-quoted',     step:4, color:'#f59e0b' },
+    po_received:     { label:'เบิก/สั่งอะไหล่',     badge:'badge-po_received',step:5, color:'#10b981' },
+    po_rejected:     { label:'ไม่อนุมัติ PO',        badge:'badge-danger',     step:5, color:'#ef4444' },
+    // ── Common ──
+    claimed:         { label:'อนุมัติเคลม/เบิกอะไหล่', badge:'badge-po_received',step:5, color:'#10b981' },
+    parts_issued:    { label:'อยู่ระหว่างซ่อม',     badge:'badge-onsite',     step:6, color:'#8b5cf6' },
+    ready_return:    { label:'รอส่งคืน',             badge:'badge-warning',    step:7, color:'#f59e0b' },
+    returning:       { label:'อยู่ระหว่างส่งคืน',   badge:'badge-returned',   step:8, color:'#7c3aed' },
+    closed:          { label:'ปิดงาน',               badge:'badge-closed',     step:9, color:'#475569' }
   };
 
   function getStatusLabel(status) {
@@ -552,35 +723,37 @@
     return new Date().toLocaleString('th-TH', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
   }
 
-  // Map status → action buttons in the table
   var REPAIR_STATUS_ACTIONS = {
-    // พิมพ์ได้เมื่อ "เอกสารนั้นถูกสร้างแล้ว" เท่านั้น
-    registered:    [{ label:'พิมพ์ใบรับงาน',     icon:'printer',      fn:'printRepairReceipt',     cls:'btn-info'    }],
-    checked:       [], // ไม่ควรถึงสถานะนี้แล้ว (ข้ามไป quoted ทันที)
-    quoted:        [{ label:'พิมพ์ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',         cls:'btn-warning' }],
-    quote_printed: [{ label:'พิมพ์ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',         cls:'btn-warning' }],
-    claimed:       [{ label:'พิมพ์ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition',   cls:'btn-success' }],
-    po_received:   [{ label:'พิมพ์ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition',   cls:'btn-success' }],
-    parts_issued:  [{ label:'พิมพ์ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition',   cls:'btn-success' }],
-    ready_return:  [
-      { label:'รายงานซ่อม',  icon:'wrench', fn:'quickPrintRepairReport', cls:'btn-primary' },
-      { label:'ใบส่งคืน',   icon:'truck',  fn:'quickPrintReturn',        cls:'btn-outline' }
+    registered:      [{ label:'พิมพ์ใบรับงาน',     icon:'printer',      fn:'printRepairReceipt',    cls:'btn-info'    }],
+    checked:         [],
+    claim_sent:      [],
+    claim_approved:  [{ label:'พิมพ์ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition',  cls:'btn-success' }],
+    claim_rejected:  [{ label:'พิมพ์ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
+    quoted:          [{ label:'พิมพ์ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
+    quote_printed:   [{ label:'พิมพ์ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
+    po_received:     [{ label:'พิมพ์ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition',  cls:'btn-success' }],
+    po_rejected:     [{ label:'รายงานซ่อม',         icon:'wrench',       fn:'quickPrintRepairReport', cls:'btn-primary' }],
+    claimed:         [{ label:'พิมพ์ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition',  cls:'btn-success' }],
+    parts_issued:    [{ label:'พิมพ์ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition',  cls:'btn-success' }],
+    ready_return:    [
+      { label:'รายงานซ่อม', icon:'wrench', fn:'quickPrintRepairReport', cls:'btn-primary' },
+      { label:'ใบส่งคืน',  icon:'truck',  fn:'quickPrintReturn',       cls:'btn-outline' }
     ],
-    returning:     [
-      { label:'รายงานซ่อม',  icon:'wrench', fn:'quickPrintRepairReport', cls:'btn-primary' },
-      { label:'ใบส่งคืน',   icon:'truck',  fn:'quickPrintReturn',        cls:'btn-outline' }
+    returning:       [
+      { label:'รายงานซ่อม', icon:'wrench', fn:'quickPrintRepairReport', cls:'btn-primary' },
+      { label:'ใบส่งคืน',  icon:'truck',  fn:'quickPrintReturn',       cls:'btn-outline' }
     ],
-    closed:        []
+    closed:          []
   };
 
-  // ปุ่มพิมพ์ใต้ stepper — map ขั้นตอน → ปุ่ม (active เมื่อสถานะถึงแล้ว)
   var STEPPER_PRINT_BTNS = {
-    registered:    [{ label:'ใบรับงาน',     icon:'printer',      fn:'printRepairReceipt',     cls:'btn-info'    }],
-    quoted:        [{ label:'ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',         cls:'btn-warning' }],
-    po_received:   [{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition',   cls:'btn-success' }],
+    registered:    [{ label:'ใบรับงาน',     icon:'printer',      fn:'printRepairReceipt',    cls:'btn-info'    }],
+    claim_approved:[{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition', cls:'btn-success' }],
+    quoted:        [{ label:'ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
+    po_received:   [{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition', cls:'btn-success' }],
     ready_return:  [
       { label:'รายงานซ่อม', icon:'wrench', fn:'quickPrintRepairReport', cls:'btn-primary' },
-      { label:'ใบส่งคืน',  icon:'truck',  fn:'quickPrintReturn',        cls:'btn-outline' }
+      { label:'ใบส่งคืน',  icon:'truck',  fn:'quickPrintReturn',       cls:'btn-outline' }
     ]
   };
 
@@ -828,7 +1001,7 @@
     var retNo  = job.return_slip ? job.return_slip.number : ('DN-'+new Date().getFullYear()+'-'+jobId.slice(-4));
     var retDate= job.return_slip ? job.return_slip.date   : new Date().toISOString().substring(0,10);
     var result = job.repair_result || '';
-    var dept   = (dp && dp.department) ? dp.department : '-';
+    var dept   = (dp && dp.department) ? dp.department : (job.department || '-');
     var wcMap  = { in_warranty:'✓ สินค้าในประกัน', out_warranty:'✗ สินค้านอกประกัน', void_warranty:'⚠ ในประกัน แต่ไม่ครอบคลุม' };
     var wcColor= { in_warranty:'#059669', out_warranty:'#dc2626', void_warranty:'#d97706' };
     var wcVal  = job.warranty_condition || 'out_warranty';
@@ -1054,7 +1227,7 @@
     var accessory   = job.accessory || 'ไม่มี';
     var custName    = cust.name  || job.customer_name  || '-';
     var custAddr    = [cust.address, cust.province].filter(Boolean).join(' ') || '-';
-    var custDept    = (dp && dp.department) ? dp.department : '-';
+    var custDept    = (dp && dp.department) ? dp.department : (job.department || '-');
     var creatorName = creator.fullname || '-';
     var recvDate    = job.created_at ? job.created_at.substring(0,10) : '-';
     var symptom     = job.symptom || '-';
@@ -1067,8 +1240,9 @@
     var wcText = wcMap[wcVal] || wcVal;
     var wcColor = { in_warranty:'#059669', out_warranty:'#dc2626', void_warranty:'#d97706' };
 
-    var qrText = 'JOB:' + jobId + '|SN:' + snVal + '|WARRANTY:' + wcVal + '|TEL:081-6855596';
-    var qrSrc  = 'https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=' + encodeURIComponent(qrText) + '&margin=4&color=0f172a&bgcolor=f8fafc';
+    // QR Code = URL สำหรับลูกค้าแสกนเพื่อ track สถานะงาน realtime
+    var trackUrl = window.location.origin + window.location.pathname + '?track=' + encodeURIComponent(jobId);
+    var qrSrc  = 'https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=' + encodeURIComponent(trackUrl) + '&margin=4&color=0f172a&bgcolor=f8fafc';
 
     var css = [
       '@import url("https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,400;0,600;0,700;0,800;1,400&display=swap");',
@@ -1344,6 +1518,9 @@
     document.getElementById('rep-reg-cust-name').value  = cust.name || '';
     document.getElementById('rep-reg-sn-hidden').value  = sn;
     document.getElementById('rep-reg-sn-display').value = sn;
+    // ดึงแผนกจากข้อมูลส่งมอบ (ถ้ามี)
+    var deptEl = document.getElementById('rep-reg-dept');
+    if (deptEl && dp.department) deptEl.value = dp.department;
 
     // Warranty status
     var today = new Date();
@@ -2346,120 +2523,134 @@
     return ts;
   }
 
-  // ---- Helper: render stepper ----
   function renderRepairStepper(currentStatus, timestamps, jobId) {
-    // Detect if this job went through warranty claim path
     var job = DB.find('repair_jobs','id',jobId) || {};
-    var isClaim = job.warranty_condition === 'in_warranty' &&
-                  job.quotation && (job.quotation.is_claim || job.quotation.is_free);
-    var isClaimFree = job.quotation && job.quotation.is_free;
+    var wc  = job.warranty_condition || 'out_warranty';
+    var ts  = timestamps || {};
+    var claimWasRejected = (currentStatus === 'claim_rejected') || ts['claim_rejected'];
+    var isClaimPath  = (wc === 'in_warranty') && !claimWasRejected;
+    var isPoRejected = job.po_rejected === true;
+    var hasParts     = (job.parts_needed || []).length > 0;
+    // ถ้าผ่าน parts_issued มาแล้ว ถือว่ามี flow ซ่อม
+    var wentThroughParts = !!ts['parts_issued'];
 
-    // Build steps based on path
-    var steps;
-    if (isClaim && isClaimFree) {
-      // Claim free path: skip quote steps, show "เคลมสินค้า" instead
-      steps = [
-        { key:'registered',   label:'ลงทะเบียน',   num:1 },
-        { key:'checked',      label:'ตรวจเช็ค',     num:2 },
-        { key:'claimed',      label:'เคลมสินค้า',  num:3 },
-        { key:'po_received',  label:'เบิกอะไหล่',  num:4 },
-        { key:'parts_issued', label:'กำลังซ่อม',   num:5 },
-        { key:'ready_return', label:'รอส่งคืน',     num:6 },
-        { key:'returning',    label:'ส่งคืนแล้ว',  num:7 },
-        { key:'closed',       label:'ปิดงาน',       num:8 }
-      ];
-    } else if (isClaim) {
-      // Claim with service fee: show quote as "ค่าบริการ"
-      steps = [
-        { key:'registered',    label:'ลงทะเบียน',    num:1 },
-        { key:'checked',       label:'ตรวจเช็ค',      num:2 },
-        { key:'quoted',        label:'ใบเสนอค่าบริการ', num:3 },
-        { key:'quote_printed', label:'ส่งเคลมแล้ว',  num:4 },
-        { key:'po_received',   label:'เบิกอะไหล่',   num:5 },
-        { key:'parts_issued',  label:'กำลังซ่อม',    num:6 },
-        { key:'ready_return',  label:'รอส่งคืน',      num:7 },
-        { key:'returning',     label:'ส่งคืนแล้ว',   num:8 },
-        { key:'closed',        label:'ปิดงาน',        num:9 }
-      ];
-    } else {
-      // Normal path
-      steps = [
-        { key:'registered',    label:'ลงทะเบียน',       num:1 },
-        { key:'checked',       label:'ตรวจเช็ค',         num:2 },
-        { key:'quoted',        label:'จัดทำใบเสนอราคา', num:3 },
-        { key:'quote_printed', label:'เสนอราคาแล้ว',    num:4 },
-        { key:'po_received',   label:'เบิกอะไหล่',      num:5 },
-        { key:'parts_issued',  label:'กำลังซ่อม',       num:6 },
-        { key:'ready_return',  label:'รอส่งคืน',         num:7 },
-        { key:'returning',     label:'ส่งคืนแล้ว',      num:8 },
-        { key:'closed',        label:'ปิดงาน',           num:9 }
-      ];
+    // สร้าง steps แบบ dynamic
+    var steps = [];
+    var n = 1;
+    function add(key, label, opts) {
+      var s = { key:key, label:label, num:n++ };
+      if (opts) { for (var k in opts) s[k] = opts[k]; }
+      steps.push(s);
     }
 
-    var currentIdx = steps.findIndex(function(s){ return s.key === currentStatus; });
-    // fallback: if status not in steps (edge case), mark all as-is
-    if (currentIdx < 0) currentIdx = 0;
+    add('registered', 'ลงทะเบียน');
+    add('checked', 'ตรวจเช็ค');
 
-    // Print button map — differs by path
-    var stepPrintMap = {
-      registered: [{ label:'ใบรับงาน', icon:'printer', fn:'printRepairReceipt', cls:'btn-info' }],
-      ready_return: [
+    if (isClaimPath) {
+      // ── เส้นทางเคลม ──
+      add('claim_sent', 'ส่งเคลม');
+      add('claim_approved', 'เคลมอนุมัติ', { altKey:'claim_rejected', altLabel:'เคลมไม่อนุมัติ' });
+      // เบิกอะไหล่ (ข้ามถ้าไม่มีอะไหล่ และยังไม่ผ่าน parts_issued)
+      if (hasParts || wentThroughParts) add('claimed', 'เบิกอะไหล่');
+      add('parts_issued', 'กำลังซ่อม');
+    } else if (claimWasRejected) {
+      // ── เคลมไม่อนุมัติ → ใบเสนอราคา ──
+      add('claim_sent', 'ส่งเคลม');
+      add('claim_rejected', 'เคลมไม่อนุมัติ', { forceRejected:true });
+      add('quoted', 'จัดทำใบเสนอราคา');
+      add('quote_printed', 'เสนอราคาแล้ว');
+      if (isPoRejected && !wentThroughParts) {
+        add('po_rejected', 'ไม่อนุมัติ PO', { forceRejected:true });
+      } else {
+        if (hasParts || wentThroughParts) add('po_received', 'เบิกอะไหล่');
+        add('parts_issued', 'กำลังซ่อม');
+      }
+    } else {
+      // ── เส้นทางนอกประกัน ──
+      add('quoted', 'จัดทำใบเสนอราคา');
+      add('quote_printed', 'เสนอราคาแล้ว');
+      if (isPoRejected && !wentThroughParts) {
+        add('po_rejected', 'ไม่อนุมัติ PO', { forceRejected:true });
+      } else {
+        if (hasParts || wentThroughParts) add('po_received', 'เบิกอะไหล่');
+        add('parts_issued', 'กำลังซ่อม');
+      }
+    }
+
+    add('ready_return', 'รอส่งคืน');
+    add('returning', 'ส่งคืนแล้ว');
+    add('closed', 'ปิดงาน');
+
+    // หาตำแหน่งปัจจุบัน
+    var currentIdx = steps.findIndex(function(s){
+      return s.key === currentStatus || (s.altKey && s.altKey === currentStatus);
+    });
+    // ถ้าหา status ปัจจุบันไม่เจอใน steps (เช่นถูกข้าม) → ใช้ step number เทียบหาตำแหน่งใกล้สุด
+    if (currentIdx < 0) {
+      var curStep = REPAIR_STATUS[currentStatus] ? REPAIR_STATUS[currentStatus].step : 1;
+      // หา step ที่มี step number <= curStep ตำแหน่งสุดท้าย
+      for (var ci = steps.length - 1; ci >= 0; ci--) {
+        var sk = steps[ci].key;
+        var skStep = REPAIR_STATUS[sk] ? REPAIR_STATUS[sk].step : 99;
+        if (skStep <= curStep) { currentIdx = ci; break; }
+      }
+      if (currentIdx < 0) currentIdx = 0;
+    }
+
+    var printMap = {
+      registered:    [{ label:'ใบรับงาน',     icon:'printer',      fn:'printRepairReceipt',    cls:'btn-info'    }],
+      claim_approved:[{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition', cls:'btn-success' }],
+      claimed:       [{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition', cls:'btn-success' }],
+      quoted:        [{ label:'ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
+      quote_printed: [{ label:'ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
+      po_received:   [{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition', cls:'btn-success' }],
+      ready_return:  [
         { label:'รายงานซ่อม', icon:'wrench', fn:'quickPrintRepairReport', cls:'btn-primary' },
-        { label:'ใบส่งคืน',  icon:'truck',  fn:'quickPrintReturn',        cls:'btn-info'   }
+        { label:'ใบส่งคืน',  icon:'truck',  fn:'quickPrintReturn',       cls:'btn-outline' }
       ]
     };
-
-    if (isClaimFree) {
-      // Claim free: ใบเบิกอะไหล่ under "เคลมสินค้า"
-      stepPrintMap['claimed']      = [{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition', cls:'btn-success' }];
-    } else {
-      // Normal / claim with fee:
-      // ใบเสนอราคา → แสดงใต้ "เสนอราคาแล้ว" (quote_printed) เท่านั้น ไม่ใช่ quoted
-      stepPrintMap['quote_printed'] = [{ label:'ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',       cls:'btn-warning' }];
-      stepPrintMap['po_received']   = [{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition', cls:'btn-success' }];
-    }
 
     var html = '<div style="display:flex;align-items:flex-start;min-width:720px;">';
     steps.forEach(function(s, i) {
       var done = i <= currentIdx;
-      var ts   = timestamps && timestamps[s.key] ? timestamps[s.key] : '';
-      var printBtns = (done && stepPrintMap[s.key]) ? stepPrintMap[s.key] : [];
+      // step ที่ forceRejected (ไม่อนุมัติ PO) แสดงสีแดงเสมอเมื่อ done
+      var isRejected = (s.forceRejected && done) || (s.altKey && s.altKey === currentStatus);
+      var ts = timestamps && (timestamps[s.key] || (s.altKey && timestamps[s.altKey])) || '';
 
-      var circleStyle = done
-        ? 'background:var(--primary);color:#fff;box-shadow:0 2px 8px rgba(99,102,241,.35);'
-        : 'background:rgba(0,0,0,.07);color:#94a3b8;';
-      // Special color for claimed step
-      if (s.key === 'claimed' && done) {
-        circleStyle = 'background:#059669;color:#fff;box-shadow:0 2px 8px rgba(5,150,105,.35);';
+      var circleStyle, labelColor, stepLabel;
+      if (isRejected) {
+        circleStyle = 'background:#ef4444;color:#fff;box-shadow:0 2px 8px rgba(239,68,68,.35);';
+        labelColor  = '#ef4444';
+        stepLabel   = s.altLabel || s.label;
+      } else if (done) {
+        circleStyle = 'background:var(--primary);color:#fff;box-shadow:0 2px 8px rgba(99,102,241,.35);';
+        labelColor  = 'var(--text-main)';
+        stepLabel   = s.label;
+      } else {
+        circleStyle = 'background:rgba(0,0,0,.07);color:#94a3b8;';
+        labelColor  = '#94a3b8';
+        stepLabel   = s.label;
       }
-      var labelColor = done ? (s.key === 'claimed' ? '#059669' : 'var(--text-main)') : '#94a3b8';
+
+      // ไม่แสดงปุ่มพิมพ์ใน step ที่ rejected หรือ forceRejected
+      var printBtns = (done && !isRejected && !s.forceRejected && printMap[s.key]) ? printMap[s.key] : [];
 
       html += '<div style="text-align:center;flex:1;min-width:64px;display:flex;flex-direction:column;align-items:center;">';
       html += '<div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 5px;font-size:.75rem;font-weight:700;' + circleStyle + '">' + s.num + '</div>';
-      html += '<div style="font-size:.62rem;font-weight:700;color:' + labelColor + ';line-height:1.3;margin-bottom:2px;">' + s.label + '</div>';
+      html += '<div style="font-size:.62rem;font-weight:700;color:' + labelColor + ';line-height:1.3;margin-bottom:2px;">' + stepLabel + '</div>';
+      html += ts ? '<div style="font-size:.55rem;color:var(--text-muted);line-height:1.3;margin-bottom:4px;">' + ts + '</div>' : '<div style="height:16px;margin-bottom:4px;"></div>';
 
-      if (ts) {
-        html += '<div style="font-size:.55rem;color:var(--text-muted);line-height:1.3;margin-bottom:4px;">' + ts + '</div>';
-      } else {
-        html += '<div style="height:16px;margin-bottom:4px;"></div>';
-      }
-
-      if (printBtns.length > 0) {
-        printBtns.forEach(function(btn) {
-          html += '<button onclick="' + btn.fn + '(\'' + jobId + '\')" class="' + btn.cls + '" ' +
-            'style="font-size:.6rem;padding:3px 7px;border-radius:5px;border:1px solid;cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;margin:2px auto;font-family:inherit;font-weight:700;" ' +
-            'title="' + btn.label + '">' +
-            '<i data-lucide="' + btn.icon + '" style="width:10px;height:10px;"></i>' + btn.label +
-          '</button>';
-        });
-      } else if (done) {
-        html += '<div style="height:24px;"></div>';
-      }
+      printBtns.forEach(function(btn) {
+        html += '<button onclick="' + btn.fn + '(\'' + jobId + '\')" class="' + btn.cls + '" style="font-size:.6rem;padding:3px 7px;border-radius:5px;border:1px solid;cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;margin:2px auto;font-family:inherit;font-weight:700;" title="' + btn.label + '"><i data-lucide="' + btn.icon + '" style="width:10px;height:10px;"></i>' + btn.label + '</button>';
+      });
+      if (done && printBtns.length === 0) html += '<div style="height:24px;"></div>';
 
       html += '</div>';
-
       if (i < steps.length - 1) {
-        html += '<div style="height:2px;background:' + (i < currentIdx ? (s.key==='claimed'?'#059669':'var(--primary)') : 'rgba(0,0,0,.07)') + ';flex:1;margin-top:16px;min-width:8px;align-self:flex-start;"></div>';
+        var lineColor = (i < currentIdx)
+          ? (steps[i].forceRejected ? '#ef4444' : 'var(--primary)')
+          : 'rgba(0,0,0,.07)';
+        html += '<div style="height:2px;background:' + lineColor + ';flex:1;margin-top:16px;min-width:8px;align-self:flex-start;"></div>';
       }
     });
     html += '</div>';
@@ -2503,19 +2694,22 @@
       return { part_id:item.part_id, name:p?p.name:item.part_id, code:p?p.code:'', qty:item.qty, price:p?p.price:0 };
     });
 
-    var allBoxes = ['stage-box-registered','stage-box-check','stage-box-quote','stage-box-po','stage-box-parts-issue','stage-box-ready-return','stage-box-returning','stage-box-close'];
+    var allBoxes = ['stage-box-registered','stage-box-check','stage-box-claim-review','stage-box-quote','stage-box-po','stage-box-parts-issue','stage-box-ready-return','stage-box-returning','stage-box-close'];
     allBoxes.forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
 
     var stageMap = {
-      registered:    'stage-box-registered',  // แก้ไขข้อมูล + พิมพ์ใบรับงาน → checked
-      checked:       'stage-box-check',        // บันทึกตรวจ → quoted/claimed
-      quoted:        'stage-box-quote',         // พิมพ์ใบเสนอ → quote_printed
-      quote_printed: 'stage-box-po',            // บันทึก PO → po_received
-      claimed:       'stage-box-parts-issue',  // เคลมฟรี → เบิกอะไหล่
-      po_received:   'stage-box-parts-issue',  // อัปโหลดใบเบิก → parts_issued
-      parts_issued:  'stage-box-ready-return', // พิมพ์รายงาน → ready_return
-      ready_return:  'stage-box-returning',    // พิมพ์ใบส่งคืน → returning
-      returning:     'stage-box-close'         // อัปโหลดปิดงาน → closed
+      registered:      'stage-box-registered',
+      checked:         'stage-box-check',
+      claim_sent:      'stage-box-claim-review',
+      claim_approved:  'stage-box-parts-issue',
+      claim_rejected:  'stage-box-quote',
+      quoted:          'stage-box-quote',
+      quote_printed:   'stage-box-po',
+      po_received:     'stage-box-parts-issue',
+      claimed:         'stage-box-parts-issue',
+      parts_issued:    'stage-box-ready-return',
+      ready_return:    'stage-box-returning',
+      returning:       'stage-box-close'
     };
     var boxId = stageMap[job.status];
     if (boxId) {
@@ -2524,8 +2718,9 @@
         box.style.display = 'block';
         if (job.status === 'registered')   initEditRegistration(job);
         if (job.status === 'checked')       initRepairPartSearch();
-        if (job.status === 'quoted')        initRepairQuoteEditor(job);
-        if (job.status === 'po_received' || job.status === 'claimed') initPartsIssueSummary(job);
+        if (job.status === 'claim_sent')    initClaimReview(job);
+        if (job.status === 'quoted' || job.status === 'claim_rejected') initRepairQuoteEditor(job);
+        if (['po_received','claimed','claim_approved'].includes(job.status)) initPartsIssueSummary(job);
         if (job.status === 'parts_issued') initRepairReadyReturn(job);
         if (job.status === 'ready_return') initReturnSlip(job);
       }
@@ -2610,15 +2805,113 @@
     setTimeout(function(){ quickPrintReturn(jobId); }, 300);
   };
 
-  // Init stage 8 - prefill DN number
   function initReturnSlip(job) {
     var retNoEl   = document.getElementById('rep-ret-no');
     var retDateEl = document.getElementById('rep-ret-date');
     if (retNoEl)   retNoEl.value   = job.return_slip ? job.return_slip.number : ('DN-' + new Date().getFullYear() + '-' + job.id.slice(-4));
     if (retDateEl) retDateEl.value = job.return_slip ? job.return_slip.date   : new Date().toISOString().substring(0,10);
+
+    // แสดง banner กรณี PO ไม่อนุมัติ
+    var box = document.getElementById('stage-box-returning');
+    if (!box) return;
+    var existBanner = box.querySelector('.po-reject-banner');
+    if (existBanner) existBanner.remove();
+    if (job.po_rejected) {
+      var banner = document.createElement('div');
+      banner.className = 'po-reject-banner';
+      banner.style.cssText = 'background:rgba(239,68,68,.06);border:1.5px solid rgba(239,68,68,.2);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:.82rem;color:#991b1b;display:flex;align-items:center;gap:8px;';
+      banner.innerHTML = '<i data-lucide="x-circle" style="width:14px;height:14px;flex-shrink:0;"></i><strong>ลูกค้าไม่อนุมัติ PO</strong> — ส่งคืนเครื่องโดยไม่ซ่อม';
+      box.insertBefore(banner, box.firstChild);
+      lucide.createIcons();
+    }
   }
 
   // ==================== STAGE 2: ตรวจเช็ค ====================
+
+  // ---- Claim Review (Stage 3 for in_warranty) ----
+  function initClaimReview(job) {
+    var el = document.getElementById('claim-review-summary');
+    if (el) {
+      var parts = DB.getAll('parts');
+      el.innerHTML =
+        '<div style="font-weight:700;color:#0369a1;margin-bottom:8px;">📋 รายการอะไหล่ที่จะเคลม</div>' +
+        ((job.parts_needed||[]).map(function(item){
+          var p = parts.find(function(x){ return x.id===item.part_id; });
+          return '• ' + (p?p.name:item.part_id) + ' × ' + item.qty;
+        }).join('<br>') || '<span style="color:var(--text-muted);">ไม่มีรายการอะไหล่</span>') +
+        '<div style="margin-top:8px;font-size:.78rem;color:var(--text-muted);">ผลตรวจเช็ค: ' + (job.check_results||'-') + '</div>';
+    }
+    // เฉพาะ Supervisor/Manager เท่านั้นกดปุ่มได้
+    var currentUser = DB.getCurrentUser();
+    var canApprove = ['manager','supervisor'].includes(currentUser.role);
+    var btns = document.getElementById('claim-approval-btns');
+    if (btns) btns.style.display = canApprove ? 'flex' : 'none';
+    if (!canApprove) {
+      var notice = document.createElement('div');
+      notice.style.cssText = 'font-size:.82rem;color:var(--warning);padding:10px;background:rgba(245,158,11,.06);border-radius:var(--radius-sm);border:1px solid rgba(245,158,11,.2);';
+      notice.innerHTML = '⚠️ รอ Supervisor หรือ Manager อนุมัติ/ปฏิเสธเคลม';
+      btns.parentNode.insertBefore(notice, btns);
+    }
+  }
+
+  window.submitClaimApproval = function(approved) {
+    var jobId = document.getElementById('rep-prog-id').value;
+    var job   = DB.find('repair_jobs','id',jobId);
+    var currentUser = DB.getCurrentUser();
+    if (!['manager','supervisor'].includes(currentUser.role)) {
+      showToast('danger','ไม่มีสิทธิ์','เฉพาะ Supervisor / Manager เท่านั้น');
+      return;
+    }
+    var ts = repairSetTimestamp(job, approved ? 'claim_approved' : 'claim_rejected');
+    if (approved) {
+      var hasParts = (job.parts_needed || []).length > 0;
+      if (hasParts) {
+        // อนุมัติ + มีอะไหล่ → ไปเบิกอะไหล่
+        DB.update('repair_jobs','id',jobId,{
+          status: 'claim_approved',
+          claim_approved_by: currentUser.id,
+          claim_approved_at: nowTs(),
+          timestamps: ts
+        });
+        showToast('success','อนุมัติเคลมแล้ว!','สถานะ → เบิกอะไหล่');
+      } else {
+        // อนุมัติ + ไม่มีอะไหล่ → ข้ามไปกำลังซ่อมเลย
+        ts['parts_issued'] = nowTs();
+        DB.update('repair_jobs','id',jobId,{
+          status: 'parts_issued',
+          claim_approved_by: currentUser.id,
+          claim_approved_at: nowTs(),
+          timestamps: ts
+        });
+        showToast('success','อนุมัติเคลมแล้ว!','ไม่มีอะไหล่เปลี่ยน → ข้ามไปกำลังซ่อม');
+      }
+    } else {
+      // ไม่อนุมัติ → ทำใบเสนอราคา (เปลี่ยนเป็น out_warranty flow)
+      DB.update('repair_jobs','id',jobId,{
+        status: 'claim_rejected',
+        claim_rejected_by: currentUser.id,
+        claim_rejected_at: nowTs(),
+        timestamps: ts
+      });
+      showToast('warning','ปฏิเสธเคลม','สถานะ → จัดทำใบเสนอราคาแทน');
+    }
+    closeModal('modal-repair-progress'); renderRepairTable(); computeNotifications();
+  };
+
+  window.submitPORejected = function() {
+    var jobId = document.getElementById('rep-prog-id').value;
+    var job   = DB.find('repair_jobs','id',jobId);
+    var ts    = job.timestamps || {};
+    ts['po_rejected']  = nowTs();
+    ts['ready_return'] = nowTs(); // ข้ามไป ready_return โดยตรง
+    DB.update('repair_jobs','id',jobId,{
+      status: 'ready_return',
+      po_rejected: true, // flag ว่า PO ไม่อนุมัติ (ไม่ซ่อม)
+      timestamps: ts
+    });
+    showToast('warning','บันทึก PO ไม่อนุมัติ','สถานะ → รอส่งคืน (ไม่ซ่อม)');
+    closeModal('modal-repair-progress'); renderRepairTable();
+  };
   function initRepairPartSearch() {
     renderRepairSelectedParts();
     document.getElementById('rep-part-search-input').value = '';
@@ -2733,13 +3026,13 @@
     var fee      = hasFee ? (parseInt(document.getElementById('rep-claim-service-fee').value)||0) : 0;
     if (!claimNo) { showToast('warning','กรุณาระบุเลขที่ใบแจ้งเคลม',''); return; }
     var job = DB.find('repair_jobs','id',jobId);
-    var ts  = repairSetTimestamp(job, 'quote_printed');
+    var ts  = repairSetTimestamp(job, 'claim_sent');
     DB.update('repair_jobs','id',jobId, {
-      status: 'quote_printed',
+      status: 'claim_sent',
       quotation: { number:claimNo, date:claimDate, service_fee:fee, amount:fee, is_claim:true },
       timestamps: ts
     });
-    showToast('success','ส่งเคลมสำเร็จ!','เคลมหมายเลข ' + claimNo + (fee > 0 ? ' · ค่าบริการ ฿' + fee.toLocaleString() : ' · ไม่มีค่าบริการ'));
+    showToast('success','ส่งเคลมสำเร็จ!','เคลมหมายเลข ' + claimNo + ' · รอ Supervisor/Manager อนุมัติ');
     closeModal('modal-repair-progress'); renderRepairTable(); computeNotifications();
   };
 
@@ -2751,18 +3044,17 @@
     var job = DB.find('repair_jobs','id',jobId);
 
     if (mode === 'claim_free') {
-      // สินค้าในประกัน ไม่มีค่าบริการ → ข้าม quote ไป claimed ทันที
+      // สินค้าในประกัน → ส่งเคลม (รอ Supervisor/Manager อนุมัติ)
       var ts = job.timestamps || {};
-      ts['checked'] = nowTs();
-      ts['claimed'] = nowTs();
+      ts['checked']    = nowTs();
+      ts['claim_sent'] = nowTs();
       DB.update('repair_jobs','id',jobId,{
-        status: 'claimed',
+        status: 'claim_sent',
         check_results: diag,
         parts_needed: _repairSelectedParts.map(function(p){ return {part_id:p.part_id,qty:p.qty}; }),
-        quotation: { number:'WARRANTY-FREE', date:new Date().toISOString().substring(0,10), service_fee:0, amount:0, is_claim:true, is_free:true },
         timestamps: ts
       });
-      showToast('success','เคลมสินค้าฟรี','สถานะ → เคลมสินค้า (ข้ามใบเสนอราคา)');
+      showToast('success','ส่งเคลมสำเร็จ','รอ Supervisor/Manager อนุมัติ');
     } else {
       // บันทึกผลตรวจ → เปลี่ยนสถานะเป็น quoted ทันที
       // (ข้อมูลครบพร้อมออกใบเสนอราคาแล้ว)
@@ -2785,7 +3077,9 @@
   // ---- Quote Editor (stage 3/4) ----
   function initRepairQuoteEditor(job) {
     var wc = job.warranty_condition || 'out_warranty';
-    var isWarranty = (wc === 'in_warranty');
+    // ถ้าเคลมถูกปฏิเสธแล้ว → ใช้ quotation mode แม้ warranty เป็น in_warranty
+    var claimRejected = (job.status === 'claim_rejected') || (job.timestamps && job.timestamps['claim_rejected']);
+    var isWarranty = (wc === 'in_warranty') && !claimRejected;
 
     // Update mode banner + title
     var banner = document.getElementById('quote-mode-banner');
@@ -2964,9 +3258,17 @@
     var file  = simulatedFiles['rep-po-file'];
     if (!poNo) { showToast('warning','กรุณาระบุเลขที่ PO',''); return; }
     var job = DB.find('repair_jobs','id',jobId);
+    var hasParts = (job.parts_needed || []).length > 0;
     var ts  = repairSetTimestamp(job,'po_received');
-    DB.update('repair_jobs','id',jobId,{ status:'po_received', po:{number:poNo,delivery_date:delDate,file:file||'po_pending.pdf'}, timestamps:ts });
-    showToast('success','บันทึก PO สำเร็จ','สถานะ → เบิก/สั่งอะไหล่');
+    if (hasParts) {
+      DB.update('repair_jobs','id',jobId,{ status:'po_received', po:{number:poNo,delivery_date:delDate,file:file||'po_pending.pdf'}, timestamps:ts });
+      showToast('success','บันทึก PO สำเร็จ','สถานะ → เบิก/สั่งอะไหล่');
+    } else {
+      // ไม่มีอะไหล่ → ข้ามไปกำลังซ่อมเลย
+      ts['parts_issued'] = nowTs();
+      DB.update('repair_jobs','id',jobId,{ status:'parts_issued', po:{number:poNo,delivery_date:delDate,file:file||'po_pending.pdf'}, timestamps:ts });
+      showToast('success','บันทึก PO สำเร็จ','ไม่มีอะไหล่เปลี่ยน → ข้ามไปกำลังซ่อม');
+    }
     closeModal('modal-repair-progress'); renderRepairTable(); computeNotifications();
   };
 

@@ -5,10 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ระบบบริการหลังการขาย - บริษัท เมดิคอลเอ็นจิเนียริ่งเซอร์วิส จำกัด</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="preconnect" href="https://unpkg.com">
-  <link rel="preconnect" href="https://cdn.jsdelivr.net">
-  <link rel="dns-prefetch" href="https://unpkg.com">
-  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
 </head>
 <body>
 
@@ -834,7 +830,7 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid rgba(16,185,129,.3);border-radius:var(--radius-sm);cursor:pointer;flex:1;min-width:160px;background:rgba(16,185,129,.04);transition:.15s;" id="wc-label-in_warranty">
               <input type="radio" name="rep-reg-warranty-cond" id="wc-in_warranty" value="in_warranty" style="accent-color:#10b981;">
-              <span style="font-size:.875rem;font-weight:700;color:#065f46;">✓ สินค้าในประกัน</span>
+              <span style="font-size:.875rem;font-weight:700;color:#065f46;">✓ สินค้าในประกัน/เคลม</span>
             </label>
             <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid rgba(239,68,68,.2);border-radius:var(--radius-sm);cursor:pointer;flex:1;min-width:160px;background:rgba(239,68,68,.03);transition:.15s;" id="wc-label-out_warranty">
               <input type="radio" name="rep-reg-warranty-cond" id="wc-out_warranty" value="out_warranty" style="accent-color:#ef4444;">
@@ -1066,7 +1062,25 @@
         </div>
       </div>
 
-      <!-- STAGE 5: รับ PO + พิมพ์ใบเบิก -->
+      <!-- STAGE claim-review: รอ Supervisor/Manager อนุมัติเคลม -->
+      <div id="stage-box-claim-review" class="panel" style="display:none;">
+        <h4 style="margin-bottom:12px;color:#0ea5e9;display:flex;align-items:center;gap:8px;"><i data-lucide="shield-check"></i>ขั้นที่ 3: รออนุมัติเคลม</h4>
+        <div style="background:rgba(14,165,233,.06);border:1.5px solid rgba(14,165,233,.2);border-radius:var(--radius-md);padding:14px;margin-bottom:14px;">
+          <div id="claim-review-summary" style="font-size:.875rem;color:var(--text-secondary);"></div>
+        </div>
+        <div style="background:rgba(99,102,241,.05);border:1px solid rgba(99,102,241,.12);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:.82rem;color:var(--text-secondary);">
+          <i data-lucide="info" style="width:13px;height:13px;display:inline;vertical-align:middle;color:var(--primary);"></i>
+          เฉพาะ <strong>Supervisor / Manager</strong> เท่านั้นที่สามารถอนุมัติหรือปฏิเสธเคลมได้
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;" id="claim-approval-btns">
+          <button type="button" class="btn btn-success" onclick="submitClaimApproval(true)">
+            <i data-lucide="check-circle"></i>อนุมัติเคลม → เบิกอะไหล่
+          </button>
+          <button type="button" class="btn btn-danger" onclick="submitClaimApproval(false)">
+            <i data-lucide="x-circle"></i>ไม่อนุมัติ → ทำใบเสนอราคา
+          </button>
+        </div>
+      </div>
       <div id="stage-box-po" class="panel" style="display:none;">
         <h4 style="margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px;"><i data-lucide="file-check"></i>ขั้นที่ 5: บันทึก PO</h4>
         <div class="form-row">
@@ -1090,7 +1104,10 @@
           <i data-lucide="info" style="width:13px;height:13px;display:inline;vertical-align:middle;color:var(--primary);"></i>
           หลังบันทึก PO แล้ว ปุ่ม <strong>พิมพ์ใบเบิกอะไหล่</strong> จะปรากฏในตารางหลักโดยอัตโนมัติ
         </div>
-        <button type="button" class="btn btn-primary" onclick="submitRepairPO()"><i data-lucide="file-check"></i>บันทึก PO → เบิก/สั่งอะไหล่</button>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-primary" onclick="submitRepairPO()"><i data-lucide="file-check"></i>บันทึก PO → เบิก/สั่งอะไหล่</button>
+          <button type="button" class="btn btn-danger" onclick="submitPORejected()"><i data-lucide="x-circle"></i>ลูกค้าไม่อนุมัติ → รอส่งคืน</button>
+        </div>
       </div>
 
       <!-- STAGE 6: คลังจ่ายอะไหล่ -->
