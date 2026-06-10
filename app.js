@@ -387,37 +387,148 @@
     var products = DB.getAll('products');
     var customers = DB.getAll('customers');
     var parts = DB.getAll('parts');
+    var currentUser = DB.getCurrentUser();
+    var role = currentUser.role;
+    var repairs = DB.getAll('repair_jobs');
+    var onsites = DB.getAll('onsite_jobs');
 
-    pmJobs.filter(function(p){ return p.status === 'pending'; }).forEach(function(pm) {
-      var dp = delivered.find(function(d){ return d.sn === pm.sn; });
-      var prod = dp ? products.find(function(p){ return p.id === dp.product_id; }) : null;
-      var cust = dp ? customers.find(function(c){ return c.id === dp.customer_id; }) : null;
-      var parts2 = pm.scheduled_month.split('-').map(Number);
-      var pmDate = new Date(parts2[0], parts2[1]-1, 1);
-      var diffDays = Math.floor((today - pmDate) / 86400000);
-      notifications.push({
-        type: diffDays > 0 ? 'danger' : 'warning', category: 'pm', icon: 'calendar-x',
-        title: 'PM ค้าง: ' + pm.sn,
-        body: (prod ? prod.name : '-') + ' ที่ ' + (cust ? cust.name : '-') + ' (' + pm.scheduled_month + ')',
-        time: diffDays > 0 ? 'เลยกำหนด ' + diffDays + ' วัน' : 'เดือนนี้'
+    var isManagement = ['manager','supervisor'].includes(role);
+    var isWarehouse  = role === 'warehouse';
+    var isEngineer   = role === 'engineer';
+    var isAdmin      = role === 'admin';
+
+    // ========== PM ค้าง — Management + Admin (ผู้วางแผนงาน) ==========
+    if (isManagement || isAdmin) {
+      var curYM_num = today.getFullYear() * 12 + today.getMonth();
+      pmJobs.filter(function(p){ return p.status === 'pending'; }).forEach(function(pm) {
+        var parts2 = pm.scheduled_month.split('-').map(Number);
+        var pmYM_num = parts2[0] * 12 + (parts2[1] - 1);
+        var monthsOverdue = curYM_num - pmYM_num;
+        if (monthsOverdue < 0 || monthsOverdue > 1) return;
+        var dp = delivered.find(function(d){ return d.sn === pm.sn; });
+        var prod = dp ? products.find(function(p){ return p.id === dp.product_id; }) : null;
+        var cust = dp ? customers.find(function(c){ return c.id === dp.customer_id; }) : null;
+        var isCurrentMonth = monthsOverdue === 0;
+        notifications.push({
+          type: isCurrentMonth ? 'warning' : 'danger', category: 'pm', icon: 'calendar-x',
+          title: 'PM ค้าง: ' + pm.sn,
+          body: (prod ? prod.name : '-') + ' ที่ ' + (cust ? cust.name : '-') + ' (' + pm.scheduled_month + ')',
+          time: isCurrentMonth ? 'กำหนดเดือนนี้' : 'ค้างจากเดือนก่อน'
+        });
       });
-    });
+    }
 
-    delivered.forEach(function(dp) {
-      var prod = products.find(function(p){ return p.id === dp.product_id; });
-      var cust = customers.find(function(c){ return c.id === dp.customer_id; });
-      var expiry = new Date(dp.warranty_expiry);
-      var daysLeft = Math.floor((expiry - today) / 86400000);
-      if (daysLeft < 0) {
-        notifications.push({ type:'danger', category:'warranty', icon:'shield-x', title:'ประกันหมดแล้ว: ' + dp.sn, body:(prod?prod.name:'-') + ' ที่ ' + (cust?cust.name:'-'), time:'หมดเมื่อ ' + Math.abs(daysLeft) + ' วันที่แล้ว' });
-      } else if (daysLeft <= 90) {
-        notifications.push({ type:'warning', category:'warranty', icon:'shield-alert', title:'ประกันใกล้หมด: ' + dp.sn, body:(prod?prod.name:'-') + ' ที่ ' + (cust?cust.name:'-'), time:'เหลืออีก ' + daysLeft + ' วัน' });
-      }
-    });
+    // ========== ประกันใกล้หมด — Management + Admin (ฝ่ายติดตามลูกค้า) ==========
+    if (isManagement || isAdmin) {
+      delivered.forEach(function(dp) {
+        var prod = products.find(function(p){ return p.id === dp.product_id; });
+        var cust = customers.find(function(c){ return c.id === dp.customer_id; });
+        var expiry = new Date(dp.warranty_expiry);
+        var daysLeft = Math.floor((expiry - today) / 86400000);
+        if (daysLeft < 0) {
+          notifications.push({ type:'danger', category:'warranty', icon:'shield-x', title:'ประกันหมดแล้ว: ' + dp.sn, body:(prod?prod.name:'-') + ' ที่ ' + (cust?cust.name:'-'), time:'หมดเมื่อ ' + Math.abs(daysLeft) + ' วันที่แล้ว' });
+        } else if (daysLeft <= 90) {
+          notifications.push({ type:'warning', category:'warranty', icon:'shield-alert', title:'ประกันใกล้หมด: ' + dp.sn, body:(prod?prod.name:'-') + ' ที่ ' + (cust?cust.name:'-'), time:'เหลืออีก ' + daysLeft + ' วัน' });
+        }
+      });
+    }
 
-    parts.filter(function(p){ return p.stock <= p.min_stock; }).forEach(function(p) {
-      notifications.push({ type: p.stock === 0 ? 'danger' : 'warning', category:'stock', icon:'package-x', title:'สต็อกต่ำ: ' + p.name.substring(0,30), body:'คงเหลือ ' + p.stock + ' ชิ้น (ต่ำกว่าเกณฑ์ ' + p.min_stock + ')', time: p.stock === 0 ? 'หมดสต็อก!' : 'ต้องสั่งซื้อ' });
-    });
+    // ========== สต็อกต่ำ — เฉพาะคลัง + Management (เรื่องของคลัง) ==========
+    if (isWarehouse || isManagement) {
+      parts.filter(function(p){ return p.stock <= p.min_stock; }).forEach(function(p) {
+        notifications.push({ type: p.stock === 0 ? 'danger' : 'warning', category:'stock', icon:'package-x', title:'สต็อกต่ำ: ' + p.name.substring(0,30), body:'คงเหลือ ' + p.stock + ' ชิ้น (ต่ำกว่าเกณฑ์ ' + p.min_stock + ')', time: p.stock === 0 ? 'หมดสต็อก!' : 'ต้องสั่งซื้อ' });
+      });
+    }
+
+    // ========== คลัง: งานรอจ่ายอะไหล่ ==========
+    if (isWarehouse || isManagement) {
+      repairs.filter(function(j){
+        return ['po_received','claim_approved','claimed'].includes(j.status) && (j.parts_needed||[]).length > 0;
+      }).forEach(function(job) {
+        var prod = products.find(function(p){ return p.id === job.product_id; });
+        notifications.push({
+          type:'warning', category:'parts', icon:'package-open',
+          title:'📦 งานรอจ่ายอะไหล่: ' + job.id,
+          body: (prod?prod.name:job.product_name||'-') + ' — รอเบิกอะไหล่ออกคลัง',
+          time:'รอดำเนินการ', jobId: job.id
+        });
+      });
+    }
+
+    // ========== Management: งานรออนุมัติเคลม ==========
+    if (isManagement) {
+      repairs.filter(function(j){ return j.status === 'claim_sent'; }).forEach(function(job) {
+        var prod = products.find(function(p){ return p.id === job.product_id; });
+        notifications.push({
+          type:'warning', category:'claim', icon:'shield-question',
+          title:'🛡️ งานรออนุมัติเคลม: ' + job.id,
+          body: (prod?prod.name:job.product_name||'-') + ' — รอพิจารณาอนุมัติ/ปฏิเสธ',
+          time:'รอดำเนินการ', jobId: job.id
+        });
+      });
+    }
+
+    // ========== วิศวกร/ช่าง: งานของตัวเอง (ผลเคลม, จ่ายอะไหล่, งานใหม่ที่ถูก assign) ==========
+    if (isEngineer) {
+      repairs.forEach(function(job) {
+        var isOwner = job.created_by === currentUser.id || job.assigned_to === currentUser.id;
+        if (!isOwner) return;
+        var prod = products.find(function(p){ return p.id === job.product_id; });
+        var prodName = prod ? prod.name : (job.product_name || job.id);
+
+        // งานซ่อมใหม่ที่เพิ่งถูก assign (ไม่ได้สร้างเอง แต่ถูกมอบหมาย)
+        if (job.assigned_to === currentUser.id && job.created_by !== currentUser.id && job.status === 'registered') {
+          notifications.push({
+            type:'info', category:'newjob', icon:'clipboard-plus',
+            title:'🆕 ได้รับมอบหมายงานซ่อม: ' + job.id,
+            body: prodName + ' — เริ่มดำเนินการได้',
+            time:'งานใหม่', jobId: job.id
+          });
+        }
+        // เคลมอนุมัติ
+        if (job.status === 'claim_approved') {
+          notifications.push({
+            type:'success', category:'claim', icon:'shield-check',
+            title:'✓ เคลมอนุมัติแล้ว: ' + job.id,
+            body: prodName + ' — รอคลังจ่ายอะไหล่ จากนั้นดำเนินการซ่อมได้',
+            time: (job.timestamps||{})['claim_approved'] || 'เพิ่งอนุมัติ', jobId: job.id
+          });
+        }
+        // เคลมไม่อนุมัติ
+        if (job.status === 'claim_rejected') {
+          notifications.push({
+            type:'danger', category:'claim', icon:'shield-x',
+            title:'✗ เคลมไม่อนุมัติ: ' + job.id,
+            body: prodName + ' — กรุณาจัดทำใบเสนอราคาเพื่อเสนอลูกค้า',
+            time: (job.timestamps||{})['claim_rejected'] || 'เพิ่งปฏิเสธ', jobId: job.id
+          });
+        }
+        // คลังจ่ายอะไหล่แล้ว → พร้อมซ่อม
+        if (job.status === 'parts_issued' && job.parts_issued_by && job.parts_issued_by !== currentUser.id) {
+          notifications.push({
+            type:'success', category:'parts', icon:'package-check',
+            title:'📦 คลังจ่ายอะไหล่แล้ว: ' + job.id,
+            body: prodName + ' — อะไหล่พร้อมแล้ว ดำเนินการซ่อมได้เลย',
+            time: (job.timestamps||{})['parts_issued'] || 'เพิ่งจ่าย', jobId: job.id
+          });
+        }
+      });
+
+      // งาน Onsite/Oncall ที่ถูกมอบหมายให้ช่าง
+      onsites.forEach(function(job) {
+        var isOwner = job.created_by === currentUser.id || job.assigned_to === currentUser.id;
+        if (!isOwner) return;
+        if (job.assigned_to === currentUser.id && job.status !== 'closed') {
+          var cust = customers.find(function(c){ return c.id === job.customer_id; });
+          notifications.push({
+            type:'info', category:'newjob', icon:'navigation',
+            title:'🚗 งาน Onsite/Oncall: ' + job.id,
+            body: (cust?cust.name:'-') + ' — ' + (job.symptom || 'รอดำเนินการ'),
+            time:'งานที่ได้รับมอบหมาย', jobId: job.id
+          });
+        }
+      });
+    }
 
     window._notifications = notifications;
     updateNotifBadge(notifications.length);
@@ -441,7 +552,8 @@
       return;
     }
     list.innerHTML = notifications.slice(0,8).map(function(n) {
-      return '<div class="notif-item"><div class="notif-icon ' + n.type + '"><i data-lucide="' + n.icon + '" style="width:16px;height:16px;"></i></div><div class="notif-content"><strong>' + n.title + '</strong><span>' + n.body + '</span><span class="notif-time">' + n.time + '</span></div></div>';
+      var clickAttr = n.jobId ? ' style="cursor:pointer;" onclick="openRepairProgressModal(\'' + n.jobId + '\');document.getElementById(\'notification-dropdown\').classList.remove(\'open\')"' : '';
+      return '<div class="notif-item"' + clickAttr + '><div class="notif-icon ' + n.type + '"><i data-lucide="' + n.icon + '" style="width:16px;height:16px;"></i></div><div class="notif-content"><strong>' + n.title + '</strong><span>' + n.body + '</span><span class="notif-time">' + n.time + '</span></div></div>';
     }).join('');
     if (notifications.length > 8) {
       list.innerHTML += '<div style="text-align:center;padding:12px;font-size:.8rem;color:var(--primary);cursor:pointer;" onclick="switchView(\'notifications\');document.getElementById(\'notification-dropdown\').classList.remove(\'open\')">ดูทั้งหมด ' + notifications.length + ' รายการ →</div>';
@@ -462,17 +574,27 @@
 
   function renderNotificationsView() {
     var notifications = computeNotifications();
+    var role = DB.getCurrentUser().role;
+    var jobList = notifications.filter(function(n){ return ['claim','parts','newjob'].includes(n.category); });
     var pmList = notifications.filter(function(n){ return n.category === 'pm'; });
     var warrantyList = notifications.filter(function(n){ return n.category === 'warranty'; });
     var stockList = notifications.filter(function(n){ return n.category === 'stock'; });
 
+    // กำหนด summary cards ตาม role
+    var cards = [];
+    cards.push({bg:'linear-gradient(135deg,#0369a1,#0ea5e9)', icon:'wrench', label:'งาน / เคลม / อะไหล่', count:jobList.length});
+    if (['manager','supervisor','admin'].includes(role)) {
+      cards.push({bg:'linear-gradient(135deg,#991b1b,#ef4444)', icon:'alert-circle', label:'PM ค้างดำเนินการ', count:pmList.length});
+      cards.push({bg:'linear-gradient(135deg,#b45309,#f59e0b)', icon:'shield-alert', label:'ประกันหมด/ใกล้หมด', count:warrantyList.length});
+    }
+    if (['warehouse','manager','supervisor'].includes(role)) {
+      cards.push({bg:'linear-gradient(135deg,#1e40af,#3b82f6)', icon:'package-x', label:'อะไหล่สต็อกต่ำ', count:stockList.length});
+    }
+
     var summaryEl = document.getElementById('notif-summary-cards');
     if (summaryEl) {
-      summaryEl.innerHTML = [
-        {bg:'linear-gradient(135deg,#991b1b,#ef4444)', icon:'alert-circle', label:'PM ค้างดำเนินการ', count:pmList.length},
-        {bg:'linear-gradient(135deg,#b45309,#f59e0b)', icon:'shield-alert', label:'ประกันหมด/ใกล้หมด', count:warrantyList.length},
-        {bg:'linear-gradient(135deg,#1e40af,#3b82f6)', icon:'package-x', label:'อะไหล่สต็อกต่ำ', count:stockList.length}
-      ].map(function(s) {
+      summaryEl.style.gridTemplateColumns = 'repeat(' + cards.length + ',1fr)';
+      summaryEl.innerHTML = cards.map(function(s) {
         return '<div class="stat-card" style="background:' + s.bg + ';border:none;cursor:default;"><div class="stat-icon" style="background:rgba(255,255,255,.15);"><i data-lucide="' + s.icon + '" style="color:white;"></i></div><div class="stat-details"><h4 style="color:rgba(255,255,255,.85);">' + s.label + '</h4><div class="counter" style="color:white;">' + s.count + '</div></div></div>';
       }).join('');
     }
@@ -482,10 +604,21 @@
       if (!el) return;
       if (list.length === 0) { el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">✓ ไม่มีรายการแจ้งเตือน</div>'; return; }
       el.innerHTML = list.map(function(n) {
-        return '<div class="notif-view-card ' + n.type + '"><div class="notif-icon ' + n.type + '" style="width:40px;height:40px;flex-shrink:0;"><i data-lucide="' + n.icon + '" style="width:18px;height:18px;"></i></div><div style="flex:1;"><div style="font-weight:700;font-size:.875rem;margin-bottom:4px;">' + n.title + '</div><div style="font-size:.8rem;color:var(--text-secondary);margin-bottom:6px;">' + n.body + '</div><span class="badge badge-' + n.type + '">' + n.time + '</span></div></div>';
+        var clickAttr = n.jobId ? ' style="cursor:pointer;" onclick="openRepairProgressModal(\'' + n.jobId + '\')"' : '';
+        return '<div class="notif-view-card ' + n.type + '"' + clickAttr + '><div class="notif-icon ' + n.type + '" style="width:40px;height:40px;flex-shrink:0;"><i data-lucide="' + n.icon + '" style="width:18px;height:18px;"></i></div><div style="flex:1;"><div style="font-weight:700;font-size:.875rem;margin-bottom:4px;">' + n.title + '</div><div style="font-size:.8rem;color:var(--text-secondary);margin-bottom:6px;">' + n.body + '</div><span class="badge badge-' + n.type + '">' + n.time + '</span></div></div>';
       }).join('');
     }
 
+    // แสดง/ซ่อน panel ตาม role
+    var pmPanel = document.getElementById('notif-pm-list');
+    var warrPanel = document.getElementById('notif-warranty-list');
+    var stockPanel = document.getElementById('notif-stock-list');
+    function togglePanel(el, show) { if (el && el.closest('.panel')) el.closest('.panel').style.display = show ? 'block' : 'none'; }
+    togglePanel(pmPanel, ['manager','supervisor','admin'].includes(role));
+    togglePanel(warrPanel, ['manager','supervisor','admin'].includes(role));
+    togglePanel(stockPanel, ['warehouse','manager','supervisor'].includes(role));
+
+    renderCards(jobList, 'notif-job-list');
     renderCards(pmList, 'notif-pm-list');
     renderCards(warrantyList, 'notif-warranty-list');
     renderCards(stockList, 'notif-stock-list');
@@ -493,19 +626,55 @@
   }
 
   // ==================== DASHBOARD ====================
+  // นับ PM ค้างจริง (เดือนนี้ + เดือนก่อน) ให้ตรงกับการแจ้งเตือน
+  function countOverduePm(pmJobs) {
+    var today = new Date();
+    var curYM = today.getFullYear() * 12 + today.getMonth();
+    return pmJobs.filter(function(pm) {
+      if (pm.status !== 'pending') return false;
+      var parts2 = pm.scheduled_month.split('-').map(Number);
+      var pmYM = parts2[0] * 12 + (parts2[1] - 1);
+      var diff = curYM - pmYM;
+      return diff >= 0 && diff <= 1;
+    }).length;
+  }
+
   function renderDashboard() {
     var user = DB.getCurrentUser();
+    var isEngineer = user.role === 'engineer';
     var repairs = DB.getAll('repair_jobs');
     var onsites = DB.getAll('onsite_jobs');
     var pmJobs = DB.getAll('pm_jobs');
     var parts = DB.getAll('parts');
+    var delivered = DB.getAll('delivered_products');
 
-    // Animated counter update
-    animateCounter('dash-stat-repairs', repairs.length);
+    // กรองข้อมูลตาม role — วิศวกร/ช่างเห็นเฉพาะงานตัวเอง
+    if (isEngineer) {
+      repairs = repairs.filter(function(j){ return j.created_by===user.id || j.assigned_to===user.id; });
+      onsites = onsites.filter(function(j){ return j.created_by===user.id || j.assigned_to===user.id; });
+      // PM เฉพาะเครื่องในเขตที่ช่างรับผิดชอบ
+      var myZone = user.zone;
+      var myCustomers = DB.getAll('customers').filter(function(c){ return c.zone === myZone; }).map(function(c){ return c.id; });
+      var mySns = delivered.filter(function(d){ return myCustomers.includes(d.customer_id); }).map(function(d){ return d.sn; });
+      pmJobs = pmJobs.filter(function(p){ return mySns.includes(p.sn); });
+    }
+
+    // อัปเดต label หัวข้อ Dashboard ตาม role
+    var dashTitle = document.getElementById('dash-scope-label');
+    if (dashTitle) {
+      dashTitle.textContent = isEngineer ? '(ภาพรวมงานของฉัน)' : '(ภาพรวมทั้งระบบ)';
+      dashTitle.style.display = 'inline';
+    }
+
+    // Animated counter — ใช้ข้อมูลที่กรองแล้ว
+    animateCounter('dash-stat-repairs', repairs.filter(function(j){ return j.status !== 'closed'; }).length);
     animateCounter('dash-stat-onsite', onsites.filter(function(j){ return j.status !== 'closed'; }).length);
-    var pmDone = pmJobs.filter(function(j){ return j.status === 'completed'; }).length;
-    document.getElementById('dash-stat-pm').textContent = pmDone + ' / ' + pmJobs.length;
-    animateCounter('dash-stat-lowstock', parts.filter(function(p){ return p.stock <= p.min_stock; }).length);
+    var pmOverdue = countOverduePm(pmJobs);
+    document.getElementById('dash-stat-pm').textContent = pmOverdue;
+    // สต็อกต่ำ — ช่างไม่เกี่ยวข้องกับคลัง ซ่อนการ์ด
+    var lowstockCard = document.getElementById('card-tab-lowstock');
+    if (lowstockCard) lowstockCard.style.display = isEngineer ? 'none' : 'flex';
+    animateCounter('dash-stat-lowstock', isEngineer ? 0 : parts.filter(function(p){ return p.stock <= p.min_stock; }).length);
 
     // Performance panel: แสดง+populate ก่อน render chart (สำคัญ! ป้องกัน reflow ระหว่างวาดกราฟ)
     var perfPanel = document.getElementById('panel-performance-view');
@@ -516,7 +685,12 @@
         populatePerformanceUserDropdown();
         perfShownNow = true;
       }
+    } else if (perfPanel) {
+      perfPanel.style.display = 'none';
     }
+
+    // งานรออนุมัติเคลม (Manager/Supervisor เท่านั้น)
+    renderClaimPendingPanel();
 
     // ถ้าเพิ่งแสดง perf panel → รอ 2 frame ให้ layout reflow เสร็จก่อนวาดกราฟ
     if (perfShownNow) {
@@ -565,10 +739,18 @@
 
   window.selectDashboardTab = function (tabName) {
     activeDashboardTab = tabName;
-    // เปลี่ยนแค่กราฟซ้าย ไม่ต้อง render ทั้งหน้า
+    var user = DB.getCurrentUser();
+    var isEngineer = user.role === 'engineer';
     var repairs = DB.getAll('repair_jobs');
     var onsites = DB.getAll('onsite_jobs');
     var pmJobs  = DB.getAll('pm_jobs');
+    if (isEngineer) {
+      repairs = repairs.filter(function(j){ return j.created_by===user.id || j.assigned_to===user.id; });
+      onsites = onsites.filter(function(j){ return j.created_by===user.id || j.assigned_to===user.id; });
+      var myCustomers = DB.getAll('customers').filter(function(c){ return c.zone === user.zone; }).map(function(c){ return c.id; });
+      var mySns = DB.getAll('delivered_products').filter(function(d){ return myCustomers.includes(d.customer_id); }).map(function(d){ return d.sn; });
+      pmJobs = pmJobs.filter(function(p){ return mySns.includes(p.sn); });
+    }
     _renderLeftChart(repairs, onsites, pmJobs);
   };
 
@@ -728,20 +910,16 @@
     checked:         [],
     claim_sent:      [],
     claim_approved:  [{ label:'พิมพ์ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition',  cls:'btn-success' }],
-    claim_rejected:  [{ label:'พิมพ์ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
-    quoted:          [{ label:'พิมพ์ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
+    claim_rejected:  [],
+    quoted:          [],
     quote_printed:   [{ label:'พิมพ์ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
     po_received:     [{ label:'พิมพ์ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition',  cls:'btn-success' }],
-    po_rejected:     [{ label:'รายงานซ่อม',         icon:'wrench',       fn:'quickPrintRepairReport', cls:'btn-primary' }],
+    po_rejected:     [],
     claimed:         [{ label:'พิมพ์ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition',  cls:'btn-success' }],
     parts_issued:    [{ label:'พิมพ์ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition',  cls:'btn-success' }],
-    ready_return:    [
-      { label:'รายงานซ่อม', icon:'wrench', fn:'quickPrintRepairReport', cls:'btn-primary' },
-      { label:'ใบส่งคืน',  icon:'truck',  fn:'quickPrintReturn',       cls:'btn-outline' }
-    ],
+    ready_return:    [],
     returning:       [
-      { label:'รายงานซ่อม', icon:'wrench', fn:'quickPrintRepairReport', cls:'btn-primary' },
-      { label:'ใบส่งคืน',  icon:'truck',  fn:'quickPrintReturn',       cls:'btn-outline' }
+      { label:'รายงานซ่อม+ใบส่งคืน', icon:'file-text', fn:'quickPrintRepairReport', cls:'btn-primary' }
     ],
     closed:          []
   };
@@ -749,11 +927,10 @@
   var STEPPER_PRINT_BTNS = {
     registered:    [{ label:'ใบรับงาน',     icon:'printer',      fn:'printRepairReceipt',    cls:'btn-info'    }],
     claim_approved:[{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition', cls:'btn-success' }],
-    quoted:        [{ label:'ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
+    quote_printed: [{ label:'ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
     po_received:   [{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition', cls:'btn-success' }],
-    ready_return:  [
-      { label:'รายงานซ่อม', icon:'wrench', fn:'quickPrintRepairReport', cls:'btn-primary' },
-      { label:'ใบส่งคืน',  icon:'truck',  fn:'quickPrintReturn',       cls:'btn-outline' }
+    returning:     [
+      { label:'รายงานซ่อม+ใบส่งคืน', icon:'file-text', fn:'quickPrintRepairReport', cls:'btn-primary' }
     ]
   };
 
@@ -773,9 +950,13 @@
     });
 
     var products = DB.getAll('products'); var customers = DB.getAll('customers');
+    var users = DB.getAll('users');
     var body = document.getElementById('body-repairs'); if (!body) return;
+    // แสดง column ผู้รับผิดชอบเฉพาะ manager/supervisor
+    var ownerTh = document.getElementById('repair-th-owner');
+    if (ownerTh) ownerTh.style.display = isPrivileged ? 'table-cell' : 'none';
     body.innerHTML = '';
-    if (allJobs.length === 0) { body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:30px;">ไม่มีรายการงานซ่อม</td></tr>'; lucide.createIcons(); return; }
+    if (allJobs.length === 0) { body.innerHTML = '<tr><td colspan="' + (isPrivileged?8:7) + '" style="text-align:center;color:var(--text-muted);padding:30px;">ไม่มีรายการงานซ่อม</td></tr>'; lucide.createIcons(); return; }
 
     allJobs.forEach(function(job) {
       var prod = products.find(function(p){ return p.id === job.product_id; });
@@ -794,10 +975,8 @@
 
       // ปุ่ม "จัดการงาน" — icon + label ชัดเจน
       if (job.status === 'closed') {
-        // งานปิดแล้ว: ดูประวัติ + เอกสาร (ทุกคนที่ canManage)
-        if (canManage) {
-          actionBtns += '<button class="btn btn-secondary btn-sm" onclick="openRepairProgressModal(\'' + job.id + '\')" title="ดูประวัติงาน"><i data-lucide="clock"></i>ประวัติ</button>';
-        }
+        // งานปิดแล้ว: ทุก User ดูประวัติ + เอกสารได้
+        actionBtns += '<button class="btn btn-secondary btn-sm" onclick="openRepairProgressModal(\'' + job.id + '\')" title="ดูประวัติงาน"><i data-lucide="clock"></i>ประวัติ</button>';
         actionBtns += '<button class="btn btn-primary btn-sm" onclick="openJobDocReview(\'' + job.id + '\')" title="ดูเอกสารทั้งหมด"><i data-lucide="folder-open"></i>เอกสาร</button>';
       } else if (canManage) {
         // ปุ่มจัดการ — icon "arrow-right-circle" สื่อถึง "ดำเนินการถัดไป"
@@ -816,14 +995,25 @@
         });
       }
 
-      // Reassign — privileged only
-      if (isPrivileged) {
+      // Reassign — privileged only, แต่ไม่แสดงสำหรับงานที่ปิดแล้ว
+      if (isPrivileged && job.status !== 'closed') {
         actionBtns += '<button class="btn btn-warning btn-sm btn-icon-only" onclick="openReassignModal(\'' + job.id + '\',\'repair_jobs\')" title="โอนงาน"><i data-lucide="user-check"></i></button>';
       }
-      // Delete
-      if (canDelete) {
+      // Delete — งานปิดแล้ว: เฉพาะ Manager / งานอื่น: ตาม canDelete เดิม
+      var showDelete = job.status === 'closed'
+        ? (currentUser.role === 'manager')
+        : canDelete;
+      if (showDelete) {
         actionBtns += '<button class="btn btn-danger btn-sm btn-icon-only" onclick="deleteJob(\'repair_jobs\',\'' + job.id + '\')" title="ลบ"><i data-lucide="trash-2"></i></button>';
       }
+
+      // ชื่อผู้รับผิดชอบ (เจ้าของงาน หรือผู้ที่ถูก assign)
+      var ownerId = job.assigned_to || job.created_by;
+      var ownerUser = users.find(function(u){ return u.id === ownerId; });
+      var ownerName = ownerUser ? ownerUser.fullname.replace('วิศวกร ','') : '-';
+      var ownerCell = isPrivileged
+        ? '<td><div style="display:flex;align-items:center;gap:5px;font-size:.82rem;"><i data-lucide="user" style="width:13px;height:13px;color:var(--primary);"></i>' + ownerName + '</div></td>'
+        : '';
 
       var tr = document.createElement('tr');
       tr.innerHTML =
@@ -831,6 +1021,7 @@
         '<td><div style="font-weight:600;">' + prodName + '</div><div style="font-size:.75rem;color:var(--text-muted);">' + prodBrand + '</div></td>' +
         '<td>' + (job.sn ? '<span style="font-family:monospace;font-weight:700;font-size:.82rem;color:var(--primary);">' + job.sn + '</span>' : '<span style="color:var(--text-muted);font-size:.78rem;">-</span>') + '</td>' +
         '<td><div style="font-size:.85rem;font-weight:600;">' + custName + '</div></td>' +
+        ownerCell +
         '<td>' + job.created_at.substring(0,10) + '</td>' +
         '<td>' +
           '<span class="badge ' + getStatusBadge(job.status) + '">' + getStatusLabel(job.status) + '</span>' +
@@ -889,7 +1080,7 @@
     if (job.status === 'checked') {
       var ts = job.timestamps || {};
       ts['quote_printed'] = nowTs();
-      DB.update('repair_jobs','id',jobId,{ status:'quote_printed', quotation:{ number:qNo, date:qDate, service_fee:svcFee, amount:grand }, timestamps:ts });
+      DB.update('repair_jobs','id',jobId,{ status:'quote_printed', quotation:{ number:qNo, date:qDate, service_fee:svcFee, amount:grand }, step_actors:buildStepActors(job,'quote_printed'), timestamps:ts });
     }
 
     var rowsHtml = _repairSelectedParts.map(function(item,i){
@@ -1209,7 +1400,7 @@
     if (job.status === 'registered') {
       var ts = job.timestamps || {};
       ts['checked'] = nowTs();
-      DB.update('repair_jobs','id',jobId,{ status:'checked', timestamps:ts });
+      DB.update('repair_jobs','id',jobId,{ status:'checked', step_actors:buildStepActors(job,'checked'), timestamps:ts });
       job = DB.find('repair_jobs','id',jobId); // reload
       renderRepairTable();
       showToast('success','สถานะเปลี่ยนเป็น "ตรวจเช็ค"','กำลังเปิดใบรับงาน...');
@@ -2163,8 +2354,213 @@
       logsContainer.appendChild(card);
     });
     if (sorted.length === 0) logsContainer.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;font-size:.875rem;">ไม่มีประวัติ</div>';
+
+    renderWarehousePendingIssue();
     lucide.createIcons();
   }
+
+  // งานรออนุมัติเคลม — แสดงบน Dashboard ของ Manager/Supervisor
+  function renderClaimPendingPanel() {
+    var user = DB.getCurrentUser();
+    var panel = document.getElementById('dash-claim-pending-panel');
+    var list  = document.getElementById('dash-claim-pending-list');
+    var countEl = document.getElementById('dash-claim-count');
+    if (!panel || !list) return;
+
+    // เฉพาะ Manager/Supervisor
+    if (!['manager','supervisor'].includes(user.role)) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    var jobs = DB.getAll('repair_jobs').filter(function(j){ return j.status === 'claim_sent'; });
+    var parts = DB.getAll('parts');
+    var customers = DB.getAll('customers');
+    var products = DB.getAll('products');
+    var users = DB.getAll('users');
+
+    if (countEl) countEl.textContent = jobs.length;
+    if (jobs.length === 0) { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+
+    list.innerHTML = jobs.map(function(job) {
+      var prod = products.find(function(p){ return p.id===job.product_id; });
+      var cust = customers.find(function(c){ return c.id===job.customer_id; });
+      var creator = users.find(function(u){ return u.id===job.created_by; });
+      var prodName = prod ? prod.name : (job.product_name || '-');
+      var custName = cust ? cust.name : (job.customer_name || '-');
+
+      var partsRows = (job.parts_needed||[]).map(function(item){
+        var p = parts.find(function(x){ return x.id===item.part_id; }) || {};
+        return '<div style="font-size:.8rem;padding:2px 0;">• ' + (p.name||item.part_id) + ' × ' + item.qty + '</div>';
+      }).join('') || '<div style="font-size:.8rem;color:var(--text-muted);">ไม่มีอะไหล่</div>';
+
+      var sentTs = (job.timestamps||{})['claim_sent'] || '';
+
+      return '<div style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:var(--radius-md);padding:14px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">' +
+          '<div>' +
+            '<div style="font-weight:800;color:#4f46e5;font-family:monospace;font-size:.9rem;">' + job.id + '</div>' +
+            '<div style="font-size:.85rem;font-weight:600;margin-top:2px;">' + prodName + '</div>' +
+            '<div style="font-size:.78rem;color:var(--text-muted);">' + custName + ' · S/N: ' + (job.sn||'-') + '</div>' +
+          '</div>' +
+          '<div style="text-align:right;">' +
+            '<span class="badge badge-po_received">รออนุมัติ</span>' +
+            '<div style="font-size:.7rem;color:var(--text-muted);margin-top:4px;">' + sentTs + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="background:rgba(0,0,0,.02);border-radius:6px;padding:8px 12px;margin-bottom:6px;">' +
+          '<div style="font-size:.75rem;font-weight:700;color:var(--text-secondary);margin-bottom:4px;">อาการ / ผลตรวจ:</div>' +
+          '<div style="font-size:.8rem;color:var(--text-secondary);">' + (job.check_results || job.symptom || '-') + '</div>' +
+        '</div>' +
+        '<div style="background:rgba(0,0,0,.02);border-radius:6px;padding:8px 12px;margin-bottom:10px;">' +
+          '<div style="font-size:.75rem;font-weight:700;color:var(--text-secondary);margin-bottom:4px;">อะไหล่ที่จะเคลม:</div>' + partsRows +
+        '</div>' +
+        '<div style="font-size:.72rem;color:var(--text-muted);margin-bottom:8px;">ผู้รับงาน: ' + (creator?creator.fullname:'-') + '</div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button class="btn btn-success btn-sm" style="flex:1;" onclick="quickApproveClaim(\'' + job.id + '\',true)"><i data-lucide="check-circle"></i>อนุมัติเคลม</button>' +
+          '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="quickApproveClaim(\'' + job.id + '\',false)"><i data-lucide="x-circle"></i>ไม่อนุมัติ</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    lucide.createIcons();
+  }
+
+  // อนุมัติ/ปฏิเสธเคลมจาก Dashboard (ใช้ logic เดียวกับ submitClaimApproval)
+  window.quickApproveClaim = function(jobId, approved) {
+    var job = DB.find('repair_jobs','id',jobId);
+    var currentUser = DB.getCurrentUser();
+    if (!['manager','supervisor'].includes(currentUser.role)) {
+      showToast('danger','ไม่มีสิทธิ์','เฉพาะ Supervisor / Manager เท่านั้น');
+      return;
+    }
+    var ts = repairSetTimestamp(job, approved ? 'claim_approved' : 'claim_rejected');
+    if (approved) {
+      var hasParts = (job.parts_needed || []).length > 0;
+      if (hasParts) {
+        DB.update('repair_jobs','id',jobId,{ status:'claim_approved', claim_approved_by:currentUser.id, claim_approved_at:nowTs(), step_actors:buildStepActors(job,'claim_approved'), timestamps:ts });
+        showToast('success','อนุมัติเคลมแล้ว!','งาน ' + jobId + ' → รอคลังจ่ายอะไหล่');
+      } else {
+        ts['parts_issued'] = nowTs();
+        DB.update('repair_jobs','id',jobId,{ status:'parts_issued', claim_approved_by:currentUser.id, claim_approved_at:nowTs(), step_actors:buildStepActors(job,'parts_issued'), timestamps:ts });
+        showToast('success','อนุมัติเคลมแล้ว!','ไม่มีอะไหล่ → ข้ามไปกำลังซ่อม');
+      }
+    } else {
+      DB.update('repair_jobs','id',jobId,{ status:'claim_rejected', claim_rejected_by:currentUser.id, claim_rejected_at:nowTs(), step_actors:buildStepActors(job,'claim_rejected'), timestamps:ts });
+      showToast('warning','ปฏิเสธเคลม','งาน ' + jobId + ' → จัดทำใบเสนอราคาแทน');
+    }
+    renderDashboard();
+    renderRepairTable();
+    computeNotifications();
+  };
+
+  // งานซ่อมที่รอคลังจ่ายอะไหล่ (po_received / claim_approved / claimed)
+  function renderWarehousePendingIssue() {
+    var jobs = DB.getAll('repair_jobs').filter(function(j){
+      return ['po_received','claim_approved','claimed'].includes(j.status) &&
+             (j.parts_needed||[]).length > 0;
+    });
+    var parts = DB.getAll('parts');
+    var customers = DB.getAll('customers');
+    var products = DB.getAll('products');
+    var list = document.getElementById('wh-pending-issue-list');
+    var countEl = document.getElementById('wh-pending-count');
+    var panel = document.getElementById('wh-pending-issue-panel');
+    if (!list) return;
+    if (countEl) countEl.textContent = jobs.length;
+
+    if (jobs.length === 0) {
+      if (panel) panel.style.display = 'none';
+      return;
+    }
+    if (panel) panel.style.display = 'block';
+
+    list.innerHTML = jobs.map(function(job) {
+      var prod = products.find(function(p){ return p.id===job.product_id; });
+      var cust = customers.find(function(c){ return c.id===job.customer_id; });
+      var prodName = prod ? prod.name : (job.product_name || '-');
+      var custName = cust ? cust.name : (job.customer_name || '-');
+      var isClaim = job.warranty_condition === 'in_warranty' && !((job.timestamps||{})['claim_rejected']);
+
+      // ตรวจ stock พอไหม
+      var allEnough = true;
+      var partsRows = (job.parts_needed||[]).map(function(item){
+        var p = parts.find(function(x){ return x.id===item.part_id; }) || {};
+        var enough = (p.stock||0) >= item.qty;
+        if (!enough) allEnough = false;
+        return '<div style="display:flex;justify-content:space-between;font-size:.8rem;padding:3px 0;">' +
+          '<span>' + (p.name||item.part_id) + ' <code style="font-size:.72rem;">' + (p.code||'') + '</code></span>' +
+          '<span style="' + (enough?'':'color:var(--danger);font-weight:700;') + '">ต้องการ ' + item.qty + ' / มี ' + (p.stock||0) + (enough?'':' ⚠') + '</span>' +
+        '</div>';
+      }).join('');
+
+      return '<div style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:var(--radius-md);padding:14px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">' +
+          '<div>' +
+            '<div style="font-weight:800;color:#4f46e5;font-family:monospace;font-size:.9rem;">' + job.id + '</div>' +
+            '<div style="font-size:.85rem;font-weight:600;margin-top:2px;">' + prodName + '</div>' +
+            '<div style="font-size:.78rem;color:var(--text-muted);">' + custName + ' · S/N: ' + (job.sn||'-') + '</div>' +
+          '</div>' +
+          '<span class="badge ' + (isClaim?'badge-success':'badge-po_received') + '">' + (isClaim?'เคลมประกัน':'มี PO') + '</span>' +
+        '</div>' +
+        '<div style="background:rgba(0,0,0,.02);border-radius:6px;padding:8px 12px;margin-bottom:10px;">' + partsRows + '</div>' +
+        (allEnough
+          ? '<button class="btn btn-success btn-sm" style="width:100%;" onclick="warehouseIssueForJob(\'' + job.id + '\')"><i data-lucide="package-check"></i>จ่ายอะไหล่ → เปลี่ยนสถานะงานเป็น "กำลังซ่อม"</button>'
+          : '<div style="text-align:center;color:var(--danger);font-size:.82rem;font-weight:600;padding:6px;"><i data-lucide="alert-triangle" style="width:14px;height:14px;display:inline;vertical-align:middle;"></i> อะไหล่ในคลังไม่เพียงพอ — กรุณารับเข้าเพิ่ม</div>') +
+      '</div>';
+    }).join('');
+    lucide.createIcons();
+  }
+
+  // คลังจ่ายอะไหล่ให้งานซ่อม → ตัด stock + บันทึก transaction + เปลี่ยนสถานะงาน
+  window.warehouseIssueForJob = function(jobId) {
+    var job = DB.find('repair_jobs','id',jobId);
+    if (!job) return;
+    var currentUser = DB.getCurrentUser();
+    var parts = DB.getAll('parts');
+
+    // ตรวจ stock อีกครั้ง
+    var insufficient = [];
+    (job.parts_needed||[]).forEach(function(item){
+      var p = parts.find(function(x){ return x.id===item.part_id; });
+      if (!p || p.stock < item.qty) insufficient.push(p ? p.name : item.part_id);
+    });
+    if (insufficient.length > 0) {
+      showToast('danger','อะไหล่ไม่เพียงพอ', insufficient.join(', '));
+      return;
+    }
+
+    // ตัด stock
+    (job.parts_needed||[]).forEach(function(item){
+      var p = DB.find('parts','id',item.part_id);
+      if (p) DB.update('parts','id',p.id,{ stock: p.stock - item.qty });
+    });
+
+    // บันทึก transaction OUT
+    DB.insert('parts_transactions', {
+      id: 'TXN' + Date.now(),
+      type: 'out',
+      ref_no: jobId,
+      items: (job.parts_needed||[]).map(function(i){ return {part_id:i.part_id, qty:i.qty}; }),
+      created_by: currentUser.id,
+      date: new Date().toISOString().replace('T',' ').substring(0,19)
+    });
+
+    // เปลี่ยนสถานะงาน → parts_issued (อยู่ระหว่างซ่อม)
+    var ts = job.timestamps || {};
+    ts['parts_issued'] = nowTs();
+    DB.update('repair_jobs','id',jobId,{
+      status: 'parts_issued',
+      parts_issued_by: currentUser.id,
+      parts_issued_at: nowTs(),
+      step_actors: buildStepActors(job,'parts_issued'),
+      timestamps: ts
+    });
+
+    showToast('success','จ่ายอะไหล่สำเร็จ!','งาน ' + jobId + ' → อยู่ระหว่างซ่อม');
+    renderWarehouseView();
+    computeNotifications();
+  };
 
   window.openReceiveStockModal = function () {
     document.getElementById('wh-in-ref').value = '';
@@ -2517,11 +2913,108 @@
   var _repairSelectedParts = [];
 
   // ---- Helper: save timestamp for a status ----
+  // บันทึก timestamp + ผู้ดำเนินการของแต่ละขั้นตอน
   function repairSetTimestamp(job, status) {
     var ts = job.timestamps || {};
     ts[status] = nowTs();
+    // บันทึกผู้ดำเนินการ step นี้ลง job.step_actors (เรียกใช้ภายหลังด้วย mergeStepActor)
+    var actor = DB.getCurrentUser();
+    if (!job._pendingActors) job._pendingActors = {};
+    job._pendingActors[status] = { user_id: actor.id, name: actor.fullname, time: ts[status] };
     return ts;
   }
+
+  // รวม step_actors เข้า object สำหรับบันทึกลง DB
+  function buildStepActors(job, status) {
+    var actor = DB.getCurrentUser();
+    var actors = job.step_actors || {};
+    actors[status] = { user_id: actor.id, name: actor.fullname, time: nowTs() };
+    return actors;
+  }
+
+  // พิมพ์ประวัติงานละเอียด (ทุกขั้นตอน + ผู้ดำเนินการ)
+  window.printJobHistory = function(jobId) {
+    var job  = DB.find('repair_jobs','id',jobId); if (!job) return;
+    var prod = DB.find('products','id',job.product_id) || {};
+    var cust = DB.find('customers','id',job.customer_id) || {};
+    var co   = getCompanyInfo();
+    var parts = DB.getAll('parts');
+    var prodName  = prod.name  || job.product_name  || '-';
+    var prodBrand = prod.brand || job.product_brand || '-';
+    var custName  = cust.name  || job.customer_name  || '-';
+    var dp = job.sn ? DB.find('delivered_products','sn',job.sn) : null;
+    var dept = (dp && dp.department) ? dp.department : (job.department || '-');
+    var actors = job.step_actors || {};
+    var ts = job.timestamps || {};
+
+    var wcMap = { in_warranty:'สินค้าในประกัน/เคลม', out_warranty:'สินค้านอกประกัน', void_warranty:'ในประกัน แต่ไม่ครอบคลุม' };
+    var stepLabels = {
+      registered:'ลงทะเบียนรับงาน', checked:'ตรวจเช็คอาการ', claim_sent:'ส่งเคลมประกัน',
+      claim_approved:'อนุมัติเคลม', claim_rejected:'ปฏิเสธเคลม (ทำใบเสนอราคา)', quoted:'จัดทำใบเสนอราคา',
+      quote_printed:'เสนอราคาแล้ว', po_received:'รับ PO / สั่งอะไหล่', po_rejected:'ไม่อนุมัติ PO',
+      parts_issued:'จ่ายอะไหล่ / เริ่มซ่อม', ready_return:'ซ่อมเสร็จ / รอส่งคืน', returning:'ส่งคืนสินค้า', closed:'ปิดงาน'
+    };
+    var order = ['registered','checked','claim_sent','claim_approved','claim_rejected','quoted','quote_printed','po_received','po_rejected','parts_issued','ready_return','returning','closed'];
+
+    // แถวประวัติแต่ละขั้นตอน
+    var rowsHtml = order.filter(function(k){ return actors[k] || ts[k]; }).map(function(k, idx) {
+      var a = actors[k];
+      var time = (a && a.time) || ts[k] || '-';
+      var name = a ? a.name : '-';
+      return '<tr>' +
+        '<td style="text-align:center;width:36px;">' + (idx+1) + '</td>' +
+        '<td><strong>' + (stepLabels[k]||k) + '</strong></td>' +
+        '<td>' + name + '</td>' +
+        '<td style="white-space:nowrap;">' + time + '</td>' +
+      '</tr>';
+    }).join('');
+
+    // อะไหล่ที่ใช้
+    var partsHtml = (job.parts_needed||[]).map(function(item, i) {
+      var p = parts.find(function(x){ return x.id===item.part_id; }) || {};
+      return '<tr><td style="text-align:center;width:36px;">' + (i+1) + '</td><td style="width:90px;font-family:monospace;">' + (p.code||'-') + '</td><td>' + (p.name||'-') + '</td><td style="text-align:center;width:60px;">' + item.qty + '</td></tr>';
+    }).join('') || '<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:8px;">ไม่มีรายการอะไหล่</td></tr>';
+
+    var body =
+      '<div class="g2" style="margin-bottom:10px;">' +
+        '<div><div class="lbl">เลขที่งานซ่อม</div><div class="val" style="font-family:monospace;color:#4f46e5;font-size:14px;">' + jobId + '</div></div>' +
+        '<div><div class="lbl">สถานะปัจจุบัน</div><div class="val">' + getStatusLabel(job.status) + '</div></div>' +
+        '<div><div class="lbl">วันที่รับงาน</div><div class="val">' + (job.created_at||'').substring(0,10) + '</div></div>' +
+        '<div><div class="lbl">เงื่อนไขประกัน</div><div class="val">' + (wcMap[job.warranty_condition]||'-') + '</div></div>' +
+      '</div>' +
+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;border:1px solid #d1d5db;border-radius:4px;margin-bottom:10px;overflow:hidden;">' +
+        '<div style="padding:8px 12px;border-right:1px solid #d1d5db;">' +
+          '<div class="sec" style="margin-top:0;">ข้อมูลเครื่องมือ</div>' +
+          '<div style="font-size:12px;line-height:1.7;"><strong>' + prodName + '</strong><br>ยี่ห้อ: ' + prodBrand + '<br>S/N: <span style="font-family:monospace;color:#4f46e5;">' + (job.sn||'-') + '</span></div>' +
+        '</div>' +
+        '<div style="padding:8px 12px;">' +
+          '<div class="sec" style="margin-top:0;">ข้อมูลลูกค้า</div>' +
+          '<div style="font-size:12px;line-height:1.7;"><strong>' + custName + '</strong><br>แผนก: ' + dept + '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="sec">อาการ / ผลตรวจเช็ค</div>' +
+      '<div style="font-size:12px;line-height:1.7;border:1px solid #e2e8f0;border-radius:4px;padding:8px 12px;margin-bottom:10px;">' +
+        '<strong>อาการ:</strong> ' + (job.symptom||'-') + '<br>' +
+        '<strong>ผลตรวจ:</strong> ' + (job.check_results||'-') +
+        (job.repair_result ? '<br><strong>สรุปผลซ่อม:</strong> ' + job.repair_result : '') +
+      '</div>' +
+
+      '<div class="sec">ประวัติการดำเนินงาน (Audit Trail)</div>' +
+      '<table style="margin-bottom:10px;">' +
+        '<thead><tr><th style="width:36px;text-align:center;">#</th><th>ขั้นตอน</th><th>ผู้ดำเนินการ</th><th>วันที่ / เวลา</th></tr></thead>' +
+        '<tbody>' + rowsHtml + '</tbody>' +
+      '</table>' +
+
+      '<div class="sec">รายการอะไหล่ที่ใช้</div>' +
+      '<table>' +
+        '<thead><tr><th style="width:36px;text-align:center;">#</th><th style="width:90px;">รหัส</th><th>ชื่ออะไหล่</th><th style="width:60px;text-align:center;">จำนวน</th></tr></thead>' +
+        '<tbody>' + partsHtml + '</tbody>' +
+      '</table>';
+
+    openDocWindow(buildDocHTML('ประวัติการดำเนินงานซ่อม', body, jobId, co));
+  };
 
   function renderRepairStepper(currentStatus, timestamps, jobId) {
     var job = DB.find('repair_jobs','id',jobId) || {};
@@ -2601,12 +3094,10 @@
       registered:    [{ label:'ใบรับงาน',     icon:'printer',      fn:'printRepairReceipt',    cls:'btn-info'    }],
       claim_approved:[{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition', cls:'btn-success' }],
       claimed:       [{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition', cls:'btn-success' }],
-      quoted:        [{ label:'ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
       quote_printed: [{ label:'ใบเสนอราคา',   icon:'file-text',    fn:'quickPrintQuote',        cls:'btn-warning' }],
       po_received:   [{ label:'ใบเบิกอะไหล่', icon:'package-open', fn:'quickPrintRequisition', cls:'btn-success' }],
-      ready_return:  [
-        { label:'รายงานซ่อม', icon:'wrench', fn:'quickPrintRepairReport', cls:'btn-primary' },
-        { label:'ใบส่งคืน',  icon:'truck',  fn:'quickPrintReturn',       cls:'btn-outline' }
+      returning:     [
+        { label:'รายงานซ่อม+ใบส่งคืน', icon:'file-text', fn:'quickPrintRepairReport', cls:'btn-primary' }
       ]
     };
 
@@ -2616,6 +3107,10 @@
       // step ที่ forceRejected (ไม่อนุมัติ PO) แสดงสีแดงเสมอเมื่อ done
       var isRejected = (s.forceRejected && done) || (s.altKey && s.altKey === currentStatus);
       var ts = timestamps && (timestamps[s.key] || (s.altKey && timestamps[s.altKey])) || '';
+      // ผู้ดำเนินการ step นี้
+      var stepActors = job.step_actors || {};
+      var actor = stepActors[s.key] || (s.altKey && stepActors[s.altKey]);
+      var actorName = actor ? actor.name : '';
 
       var circleStyle, labelColor, stepLabel;
       if (isRejected) {
@@ -2638,7 +3133,11 @@
       html += '<div style="text-align:center;flex:1;min-width:64px;display:flex;flex-direction:column;align-items:center;">';
       html += '<div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 5px;font-size:.75rem;font-weight:700;' + circleStyle + '">' + s.num + '</div>';
       html += '<div style="font-size:.62rem;font-weight:700;color:' + labelColor + ';line-height:1.3;margin-bottom:2px;">' + stepLabel + '</div>';
-      html += ts ? '<div style="font-size:.55rem;color:var(--text-muted);line-height:1.3;margin-bottom:4px;">' + ts + '</div>' : '<div style="height:16px;margin-bottom:4px;"></div>';
+      html += ts ? '<div style="font-size:.55rem;color:var(--text-muted);line-height:1.3;margin-bottom:2px;">' + ts + '</div>' : '<div style="height:16px;margin-bottom:2px;"></div>';
+      if (done && actorName) {
+        var shortName = actorName.replace('วิศวกร ','').replace('นาย','');
+        html += '<div style="font-size:.52rem;color:var(--primary);font-weight:700;line-height:1.2;margin-bottom:4px;display:flex;align-items:center;gap:2px;justify-content:center;"><i data-lucide="user" style="width:8px;height:8px;"></i>' + shortName + '</div>';
+      }
 
       printBtns.forEach(function(btn) {
         html += '<button onclick="' + btn.fn + '(\'' + jobId + '\')" class="' + btn.cls + '" style="font-size:.6rem;padding:3px 7px;border-radius:5px;border:1px solid;cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;margin:2px auto;font-family:inherit;font-weight:700;" title="' + btn.label + '"><i data-lucide="' + btn.icon + '" style="width:10px;height:10px;"></i>' + btn.label + '</button>';
@@ -2779,7 +3278,7 @@
     if (!result) { showToast('warning','กรุณากรอกสรุปผลการซ่อม',''); return; }
     var job = DB.find('repair_jobs','id',jobId);
     var ts  = repairSetTimestamp(job,'ready_return');
-    DB.update('repair_jobs','id',jobId,{ status:'ready_return', repair_result:result, timestamps:ts });
+    DB.update('repair_jobs','id',jobId,{ status:'ready_return', repair_result:result, step_actors:buildStepActors(job,'ready_return'), timestamps:ts });
     showToast('success','สถานะเปลี่ยนเป็น "รอส่งคืน"','กำลังเปิดรายงานการซ่อม...');
     closeModal('modal-repair-progress');
     renderRepairTable();
@@ -2797,6 +3296,7 @@
     DB.update('repair_jobs','id',jobId,{
       status:'returning',
       return_slip:{ number:retNo, date:retDate, file:retNo+'.pdf' },
+      step_actors: buildStepActors(job,'returning'),
       timestamps: ts
     });
     showToast('success','สถานะเปลี่ยนเป็น "อยู่ระหว่างส่งคืน"','กำลังเปิดใบส่งคืน...');
@@ -2871,6 +3371,7 @@
           status: 'claim_approved',
           claim_approved_by: currentUser.id,
           claim_approved_at: nowTs(),
+          step_actors: buildStepActors(job,'claim_approved'),
           timestamps: ts
         });
         showToast('success','อนุมัติเคลมแล้ว!','สถานะ → เบิกอะไหล่');
@@ -2881,6 +3382,7 @@
           status: 'parts_issued',
           claim_approved_by: currentUser.id,
           claim_approved_at: nowTs(),
+          step_actors: buildStepActors(job,'parts_issued'),
           timestamps: ts
         });
         showToast('success','อนุมัติเคลมแล้ว!','ไม่มีอะไหล่เปลี่ยน → ข้ามไปกำลังซ่อม');
@@ -2891,6 +3393,7 @@
         status: 'claim_rejected',
         claim_rejected_by: currentUser.id,
         claim_rejected_at: nowTs(),
+        step_actors: buildStepActors(job,'claim_rejected'),
         timestamps: ts
       });
       showToast('warning','ปฏิเสธเคลม','สถานะ → จัดทำใบเสนอราคาแทน');
@@ -2907,6 +3410,7 @@
     DB.update('repair_jobs','id',jobId,{
       status: 'ready_return',
       po_rejected: true, // flag ว่า PO ไม่อนุมัติ (ไม่ซ่อม)
+      step_actors: buildStepActors(job,'ready_return'),
       timestamps: ts
     });
     showToast('warning','บันทึก PO ไม่อนุมัติ','สถานะ → รอส่งคืน (ไม่ซ่อม)');
@@ -3030,6 +3534,7 @@
     DB.update('repair_jobs','id',jobId, {
       status: 'claim_sent',
       quotation: { number:claimNo, date:claimDate, service_fee:fee, amount:fee, is_claim:true },
+      step_actors: buildStepActors(job,'claim_sent'),
       timestamps: ts
     });
     showToast('success','ส่งเคลมสำเร็จ!','เคลมหมายเลข ' + claimNo + ' · รอ Supervisor/Manager อนุมัติ');
@@ -3052,6 +3557,7 @@
         status: 'claim_sent',
         check_results: diag,
         parts_needed: _repairSelectedParts.map(function(p){ return {part_id:p.part_id,qty:p.qty}; }),
+        step_actors: buildStepActors(job,'claim_sent'),
         timestamps: ts
       });
       showToast('success','ส่งเคลมสำเร็จ','รอ Supervisor/Manager อนุมัติ');
@@ -3065,6 +3571,7 @@
         status: 'quoted',
         check_results: diag,
         parts_needed: _repairSelectedParts.map(function(p){ return {part_id:p.part_id,qty:p.qty}; }),
+        step_actors: buildStepActors(job,'quoted'),
         timestamps: ts
       });
       var isWarranty = job.warranty_condition === 'in_warranty';
@@ -3261,12 +3768,12 @@
     var hasParts = (job.parts_needed || []).length > 0;
     var ts  = repairSetTimestamp(job,'po_received');
     if (hasParts) {
-      DB.update('repair_jobs','id',jobId,{ status:'po_received', po:{number:poNo,delivery_date:delDate,file:file||'po_pending.pdf'}, timestamps:ts });
+      DB.update('repair_jobs','id',jobId,{ status:'po_received', po:{number:poNo,delivery_date:delDate,file:file||'po_pending.pdf'}, step_actors:buildStepActors(job,'po_received'), timestamps:ts });
       showToast('success','บันทึก PO สำเร็จ','สถานะ → เบิก/สั่งอะไหล่');
     } else {
       // ไม่มีอะไหล่ → ข้ามไปกำลังซ่อมเลย
       ts['parts_issued'] = nowTs();
-      DB.update('repair_jobs','id',jobId,{ status:'parts_issued', po:{number:poNo,delivery_date:delDate,file:file||'po_pending.pdf'}, timestamps:ts });
+      DB.update('repair_jobs','id',jobId,{ status:'parts_issued', po:{number:poNo,delivery_date:delDate,file:file||'po_pending.pdf'}, step_actors:buildStepActors(job,'parts_issued'), timestamps:ts });
       showToast('success','บันทึก PO สำเร็จ','ไม่มีอะไหล่เปลี่ยน → ข้ามไปกำลังซ่อม');
     }
     closeModal('modal-repair-progress'); renderRepairTable(); computeNotifications();
@@ -3313,11 +3820,17 @@
   function initPartsIssueSummary(job) {
     var parts = DB.getAll('parts');
     var el = document.getElementById('parts-issue-summary'); if (!el) return;
-    el.innerHTML = '<strong>รายการอะไหล่ตามใบเสนอราคา:</strong><br>' +
+    el.innerHTML = '<strong>รายการอะไหล่ที่ต้องเบิก:</strong><br>' +
       (job.parts_needed||[]).map(function(item) {
         var p = parts.find(function(x){ return x.id===item.part_id; });
-        return '• ' + (p?p.name:item.part_id) + ' × ' + item.qty + (p?' (คงเหลือ: '+p.stock+')':'');
-      }).join('<br>');
+        var enough = p && p.stock >= item.qty;
+        return '<div style="display:flex;justify-content:space-between;padding:3px 0;">' +
+          '<span>• ' + (p?p.name:item.part_id) + ' × ' + item.qty + '</span>' +
+          '<span style="' + (enough?'color:var(--success);':'color:var(--danger);font-weight:700;') + '">' +
+            (p ? 'คงเหลือ ' + p.stock + (enough?'':' ⚠ ไม่พอ') : '-') +
+          '</span>' +
+        '</div>';
+      }).join('');
   }
 
   window.submitPartsIssue = function() {
@@ -3340,7 +3853,7 @@
       DB.insert('parts_transactions',{id:'TX-'+Date.now().toString().slice(-6),type:'out',date:new Date().toISOString().replace('T',' ').substring(0,19),ref_no:jobId,items:txItems,created_by:DB.getCurrentUser().id});
     }
     var ts = repairSetTimestamp(job,'parts_issued');
-    DB.update('repair_jobs','id',jobId,{ status:'parts_issued', parts_issue_file:file, timestamps:ts });
+    DB.update('repair_jobs','id',jobId,{ status:'parts_issued', parts_issue_file:file, step_actors:buildStepActors(job,'parts_issued'), timestamps:ts });
     showToast('success','จ่ายอะไหล่สำเร็จ','สถานะ → อยู่ระหว่างซ่อม');
     closeModal('modal-repair-progress'); renderRepairTable(); computeNotifications();
   };
@@ -3458,7 +3971,7 @@
     if (!file) { showToast('warning','กรุณาอัปโหลดเอกสารปิดงาน',''); return; }
     var job = DB.find('repair_jobs','id',jobId);
     var ts  = repairSetTimestamp(job,'closed');
-    DB.update('repair_jobs','id',jobId,{ status:'closed', closed_slip:{file:file}, timestamps:ts });
+    DB.update('repair_jobs','id',jobId,{ status:'closed', closed_slip:{file:file}, step_actors:buildStepActors(job,'closed'), timestamps:ts });
     showToast('success','ปิดงานซ่อมสำเร็จ!','งาน ' + jobId + ' ปิดแล้ว');
     closeModal('modal-repair-progress'); renderRepairTable(); computeNotifications();
   };
@@ -3984,6 +4497,7 @@
         symptom:   document.getElementById('rep-reg-symptom').value.trim(),
         status: 'registered', check_results: '', parts_needed: [],
         quotation: null, po: null, return_slip: null, closed_slip: null,
+        step_actors: { registered: { user_id: DB.getCurrentUser().id, name: DB.getCurrentUser().fullname, time: nowTs() } },
         created_by: DB.getCurrentUser().id,
         created_at: new Date().toISOString().replace('T',' ').substring(0,19)
       });

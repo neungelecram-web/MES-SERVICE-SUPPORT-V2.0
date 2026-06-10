@@ -188,7 +188,7 @@
       <div style="display:flex;align-items:center;gap:14px;">
         <div class="menu-trigger" onclick="toggleSidebar()"><i data-lucide="menu"></i></div>
         <div class="header-title-sec">
-          <h2 id="page-header-title">แดชบอร์ดสรุปงาน</h2>
+          <h2 id="page-header-title">แดชบอร์ดสรุปงาน <span id="dash-scope-label" style="font-size:.85rem;font-weight:500;color:var(--primary);display:none;"></span></h2>
           <p id="page-header-sub">ระบบบริหารงานบริการหลังการขายเครื่องมือแพทย์</p>
         </div>
       </div>
@@ -215,20 +215,32 @@
         <div class="stats-grid">
           <div class="stat-card repairs-card" id="card-tab-repairs" onclick="selectDashboardTab('repairs')">
             <div class="stat-icon primary"><i data-lucide="wrench"></i></div>
-            <div class="stat-details"><h4>งานซ่อมทั้งหมด</h4><div class="counter" id="dash-stat-repairs">0</div></div>
+            <div class="stat-details"><h4>งานซ่อมที่ดำเนินการ</h4><div class="counter" id="dash-stat-repairs">0</div></div>
+            <button class="stat-goto-btn" onclick="event.stopPropagation();switchView('repair')" title="ดูรายการงานซ่อม"><i data-lucide="arrow-right"></i></button>
           </div>
           <div class="stat-card onsite-card" id="card-tab-onsite" onclick="selectDashboardTab('onsite')">
             <div class="stat-icon warning"><i data-lucide="navigation"></i></div>
             <div class="stat-details"><h4>ONSITE / ONCALL ค้างอยู่</h4><div class="counter" id="dash-stat-onsite">0</div></div>
+            <button class="stat-goto-btn" onclick="event.stopPropagation();switchView('onsite')" title="ดูรายการงาน Onsite"><i data-lucide="arrow-right"></i></button>
           </div>
           <div class="stat-card pm-card" id="card-tab-pm" onclick="selectDashboardTab('pm')">
             <div class="stat-icon success"><i data-lucide="calendar"></i></div>
-            <div class="stat-details"><h4>PM เดือนนี้เรียบร้อย</h4><div class="counter" id="dash-stat-pm">0 / 0</div></div>
+            <div class="stat-details"><h4>PM ค้างดำเนินการ</h4><div class="counter" id="dash-stat-pm">0</div></div>
+            <button class="stat-goto-btn" onclick="event.stopPropagation();switchView('pm')" title="ดูแผน PM"><i data-lucide="arrow-right"></i></button>
           </div>
           <div class="stat-card lowstock-card" id="card-tab-lowstock" onclick="selectDashboardTab('lowstock')">
             <div class="stat-icon danger"><i data-lucide="alert-triangle"></i></div>
-            <div class="stat-details"><h4>อะไหล่สต็อกต่ำเตือน</h4><div class="counter" id="dash-stat-lowstock">0</div></div>
+            <div class="stat-details"><h4 id="dash-lowstock-label">อะไหล่สต็อกต่ำเตือน</h4><div class="counter" id="dash-stat-lowstock">0</div></div>
+            <button class="stat-goto-btn" onclick="event.stopPropagation();switchView('warehouse')" title="ดูคลังอะไหล่"><i data-lucide="arrow-right"></i></button>
           </div>
+        </div>
+
+        <!-- งานรออนุมัติเคลม (เฉพาะ Manager/Supervisor) -->
+        <div class="panel" id="dash-claim-pending-panel" style="display:none;margin-bottom:24px;border:1.5px solid rgba(14,165,233,.3);background:rgba(14,165,233,.02);">
+          <div class="panel-header">
+            <h3 class="panel-title" style="color:#0ea5e9;"><i data-lucide="shield-question"></i>งานรออนุมัติเคลม <span id="dash-claim-count" style="background:#0ea5e9;color:#fff;border-radius:12px;padding:2px 10px;font-size:.75rem;margin-left:6px;">0</span></h3>
+          </div>
+          <div id="dash-claim-pending-list" style="display:flex;flex-direction:column;gap:10px;"></div>
         </div>
 
         <div class="dashboard-layout">
@@ -288,8 +300,15 @@
           <button class="btn btn-secondary btn-sm" onclick="renderNotificationsView()"><i data-lucide="refresh-cw"></i>รีเฟรช</button>
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px;" id="notif-summary-cards">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;" id="notif-summary-cards">
           <!-- Filled dynamically -->
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3 class="panel-title"><i data-lucide="wrench"></i>งานของฉัน / ผลเคลม / งานใหม่ / จ่ายอะไหล่</h3>
+          </div>
+          <div class="notif-view-grid" id="notif-job-list"></div>
         </div>
 
         <div class="panel">
@@ -338,7 +357,7 @@
         </div>
         <div class="table-responsive">
           <table class="custom-table">
-            <thead><tr><th>เลขที่งานซ่อม</th><th>สินค้า / Brand</th><th>S/N เครื่อง</th><th>ลูกค้า</th><th>วันที่รับแจ้ง</th><th>สถานะ</th><th>การจัดการ</th></tr></thead>
+            <thead><tr><th>เลขที่งานซ่อม</th><th>สินค้า / Brand</th><th>S/N เครื่อง</th><th>ลูกค้า</th><th id="repair-th-owner" style="display:none;">ผู้รับผิดชอบ</th><th>วันที่รับแจ้ง</th><th>สถานะ</th><th>การจัดการ</th></tr></thead>
             <tbody id="body-repairs"></tbody>
           </table>
         </div>
@@ -515,6 +534,14 @@
           <div class="stat-card"><div class="stat-icon success"><i data-lucide="badge-dollar-sign"></i></div><div class="stat-details"><h4>มูลค่าคงคลังรวม</h4><div class="counter" id="wh-stat-total-value">฿0</div></div></div>
           <div class="stat-card"><div class="stat-icon warning"><i data-lucide="trending-up"></i></div><div class="stat-details"><h4>รับเข้าเดือนนี้</h4><div class="counter" id="wh-stat-transactions-in">0</div></div></div>
           <div class="stat-card"><div class="stat-icon danger"><i data-lucide="trending-down"></i></div><div class="stat-details"><h4>จ่ายออกเดือนนี้</h4><div class="counter" id="wh-stat-transactions-out">0</div></div></div>
+        </div>
+
+        <!-- งานซ่อมที่รอจ่ายอะไหล่ -->
+        <div class="panel" id="wh-pending-issue-panel" style="margin-bottom:24px;border:1.5px solid rgba(245,158,11,.3);background:rgba(245,158,11,.02);">
+          <div class="panel-header">
+            <h3 class="panel-title" style="color:#d97706;"><i data-lucide="package-open"></i>งานซ่อมรอจ่ายอะไหล่ <span id="wh-pending-count" style="background:#f59e0b;color:#fff;border-radius:12px;padding:2px 10px;font-size:.75rem;margin-left:6px;">0</span></h3>
+          </div>
+          <div id="wh-pending-issue-list" style="display:flex;flex-direction:column;gap:10px;"></div>
         </div>
 
         <div class="dashboard-layout" style="grid-template-columns:2fr 1.2fr;gap:24px;">
@@ -862,8 +889,15 @@
     <div class="modal-body">
 
       <!-- 9-step Stepper -->
-      <div id="repair-stepper" style="overflow-x:auto;margin-bottom:20px;padding:14px 12px;background:rgba(0,0,0,.02);border-radius:var(--radius-md);border:1px solid var(--border-color);">
+      <div id="repair-stepper" style="overflow-x:auto;margin-bottom:14px;padding:14px 12px;background:rgba(0,0,0,.02);border-radius:var(--radius-md);border:1px solid var(--border-color);">
         <!-- Filled by JS -->
+      </div>
+
+      <!-- ปุ่มพิมพ์ประวัติงานละเอียด -->
+      <div style="text-align:right;margin-bottom:18px;">
+        <button type="button" class="btn btn-outline btn-sm" id="btn-print-job-history" onclick="printJobHistory(document.getElementById('rep-prog-id').value)">
+          <i data-lucide="printer"></i>พิมพ์ประวัติงานละเอียด
+        </button>
       </div>
 
       <!-- Job Info Summary -->
@@ -1110,18 +1144,19 @@
         </div>
       </div>
 
-      <!-- STAGE 6: คลังจ่ายอะไหล่ -->
+      <!-- STAGE 6: รอคลังจ่ายอะไหล่ (ไม่มีปุ่มยืนยัน - คลังเป็นผู้จ่ายในเมนูจ่ายสินค้า) -->
       <div id="stage-box-parts-issue" class="panel" style="display:none;">
-        <h4 style="margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px;"><i data-lucide="package-open"></i>ขั้นที่ 6: คลังจ่ายอะไหล่</h4>
+        <h4 style="margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px;"><i data-lucide="package-open"></i>ขั้นที่ 6: รอคลังจ่ายอะไหล่</h4>
         <div id="parts-issue-summary" style="background:rgba(99,102,241,.04);border:1px solid rgba(99,102,241,.12);border-radius:var(--radius-md);padding:14px;margin-bottom:14px;font-size:.875rem;"></div>
-        <div class="form-group">
-          <label class="form-label">อัปโหลดใบเบิกอะไหล่ที่อนุมัติแล้ว <span style="color:var(--danger)">*</span></label>
-          <div class="file-upload-zone" onclick="simulateFileUpload('rep-parts-file')">
-            <i data-lucide="file-check-2"></i><p>คลิกอัปโหลด ใบเบิกอะไหล่ที่เซ็นแล้ว</p><span style="font-size:.72rem;color:var(--text-muted);display:block;margin-top:3px;">PDF, JPG, PNG — ไม่เกิน 10MB</span>
-            <span id="rep-parts-file-name" style="color:var(--success);font-weight:600;font-size:.9rem;display:block;margin-top:8px;"></span>
+        <div style="background:rgba(245,158,11,.08);border:1.5px solid rgba(245,158,11,.25);border-radius:var(--radius-md);padding:16px;display:flex;align-items:center;gap:12px;">
+          <div style="width:44px;height:44px;border-radius:50%;background:rgba(245,158,11,.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <i data-lucide="clock" style="width:22px;height:22px;color:#d97706;"></i>
+          </div>
+          <div>
+            <div style="font-weight:700;color:#92400e;font-size:.95rem;margin-bottom:2px;">รอเจ้าหน้าที่คลังจ่ายอะไหล่</div>
+            <div style="font-size:.82rem;color:var(--text-secondary);">เมื่อคลังบันทึกการจ่ายอะไหล่ในเมนู <strong>คลังอะไหล่ → จ่ายสินค้า</strong> สำหรับงานนี้แล้ว สถานะจะเปลี่ยนเป็น "อยู่ระหว่างซ่อม" โดยอัตโนมัติ</div>
           </div>
         </div>
-        <button type="button" class="btn btn-primary" onclick="submitPartsIssue()"><i data-lucide="check"></i>ยืนยันจ่ายอะไหล่ → อยู่ระหว่างซ่อม</button>
       </div>
 
       <!-- STAGE 7: ช่างซ่อมเสร็จ -->
