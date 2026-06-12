@@ -235,6 +235,9 @@
           </div>
         </div>
 
+        <!-- Warehouse Dashboard Panel (เฉพาะ user คลัง) -->
+        <div id="dash-warehouse-panel" style="display:none;margin-bottom:24px;"></div>
+
         <!-- งานรออนุมัติเคลม (เฉพาะ Manager/Supervisor) -->
         <div class="panel" id="dash-claim-pending-panel" style="display:none;margin-bottom:24px;border:1.5px solid rgba(14,165,233,.3);background:rgba(14,165,233,.02);">
           <div class="panel-header">
@@ -243,7 +246,7 @@
           <div id="dash-claim-pending-list" style="display:flex;flex-direction:column;gap:10px;"></div>
         </div>
 
-        <div class="dashboard-layout">
+        <div class="dashboard-layout" id="dash-charts-layout">
           <div class="panel">
             <div class="panel-header">
               <h3 class="panel-title" id="chart-left-title"><i data-lucide="pie-chart"></i>สัดส่วนงานซ่อมแยกตามยี่ห้อ</h3>
@@ -355,9 +358,23 @@
             </button>
           </div>
         </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;">
+          <button class="btn btn-outline btn-sm" onclick="exportRepairExcel()"><i data-lucide="file-spreadsheet"></i>Export Excel</button>
+          <button class="btn btn-outline btn-sm" onclick="exportRepairPDF()"><i data-lucide="file-text"></i>พิมพ์ / PDF</button>
+        </div>
+        <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:8px;"><i data-lucide="info" style="width:12px;height:12px;display:inline;vertical-align:middle;"></i> คลิกที่หัวคอลัมน์เพื่อเรียงลำดับ</div>
         <div class="table-responsive">
-          <table class="custom-table">
-            <thead><tr><th>เลขที่งานซ่อม</th><th>สินค้า / Brand</th><th>S/N เครื่อง</th><th>ลูกค้า</th><th id="repair-th-owner" style="display:none;">ผู้รับผิดชอบ</th><th>วันที่รับแจ้ง</th><th>สถานะ</th><th>การจัดการ</th></tr></thead>
+          <table class="custom-table" id="table-repairs">
+            <thead><tr>
+              <th data-sort="id" onclick="sortRepairTable('id')" style="cursor:pointer;user-select:none;">เลขที่งานซ่อม</th>
+              <th data-sort="product" onclick="sortRepairTable('product')" style="cursor:pointer;user-select:none;">สินค้า / Brand</th>
+              <th data-sort="sn" onclick="sortRepairTable('sn')" style="cursor:pointer;user-select:none;">S/N เครื่อง</th>
+              <th data-sort="customer" onclick="sortRepairTable('customer')" style="cursor:pointer;user-select:none;">ลูกค้า</th>
+              <th id="repair-th-owner" data-sort="owner" onclick="sortRepairTable('owner')" style="display:none;cursor:pointer;user-select:none;">ผู้รับผิดชอบ</th>
+              <th data-sort="created_at" onclick="sortRepairTable('created_at')" style="cursor:pointer;user-select:none;">วันที่รับแจ้ง</th>
+              <th data-sort="status" onclick="sortRepairTable('status')" style="cursor:pointer;user-select:none;">สถานะ</th>
+              <th>การจัดการ</th>
+            </tr></thead>
             <tbody id="body-repairs"></tbody>
           </table>
         </div>
@@ -386,9 +403,23 @@
             </button>
           </div>
         </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;">
+          <button class="btn btn-outline btn-sm" onclick="exportOnsiteExcel()"><i data-lucide="file-spreadsheet"></i>Export Excel</button>
+          <button class="btn btn-outline btn-sm" onclick="exportOnsitePDF()"><i data-lucide="file-text"></i>พิมพ์ / PDF</button>
+        </div>
+        <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:8px;"><i data-lucide="info" style="width:12px;height:12px;display:inline;vertical-align:middle;"></i> คลิกที่หัวคอลัมน์เพื่อเรียงลำดับ</div>
         <div class="table-responsive">
-          <table class="custom-table">
-            <thead><tr><th>เลขที่งาน</th><th>S/N เครื่อง</th><th>สินค้า</th><th>ลูกค้า / เขต</th><th>ช่าง</th><th>ประเภท</th><th>สถานะ</th><th>จัดการ</th></tr></thead>
+          <table class="custom-table" id="table-onsite">
+            <thead><tr>
+              <th data-sort="id" onclick="sortOnsiteTable('id')" style="cursor:pointer;user-select:none;">เลขที่งาน</th>
+              <th data-sort="sn" onclick="sortOnsiteTable('sn')" style="cursor:pointer;user-select:none;">S/N เครื่อง</th>
+              <th data-sort="product" onclick="sortOnsiteTable('product')" style="cursor:pointer;user-select:none;">สินค้า</th>
+              <th data-sort="customer" onclick="sortOnsiteTable('customer')" style="cursor:pointer;user-select:none;">ลูกค้า / เขต</th>
+              <th data-sort="owner" onclick="sortOnsiteTable('owner')" style="cursor:pointer;user-select:none;">ช่าง</th>
+              <th data-sort="type" onclick="sortOnsiteTable('type')" style="cursor:pointer;user-select:none;">ประเภท</th>
+              <th data-sort="status" onclick="sortOnsiteTable('status')" style="cursor:pointer;user-select:none;">สถานะ</th>
+              <th>จัดการ</th>
+            </tr></thead>
             <tbody id="body-onsite"></tbody>
           </table>
         </div>
@@ -515,9 +546,20 @@
             </button>
           </div>
         </div>
+        <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:8px;"><i data-lucide="info" style="width:12px;height:12px;display:inline;vertical-align:middle;"></i> คลิกที่หัวคอลัมน์เพื่อเรียงลำดับ — คลิกที่ "ลูกค้า" หรือ "สินค้า" เพื่อ group</div>
         <div class="table-responsive">
-          <table class="custom-table">
-            <thead><tr><th>S/N</th><th>สินค้า / ยี่ห้อ</th><th>โรงพยาบาล</th><th>วันส่งมอบ</th><th>ประกัน</th><th>วันหมดประกัน</th><th>รอบ PM</th><th>เอกสาร</th><th>จัดการ</th></tr></thead>
+          <table class="custom-table" id="table-delivered">
+            <thead><tr>
+              <th data-sort="sn" onclick="sortDeliveredTable('sn')" style="cursor:pointer;user-select:none;">S/N</th>
+              <th data-sort="product" onclick="sortDeliveredTable('product')" style="cursor:pointer;user-select:none;">สินค้า / ยี่ห้อ</th>
+              <th data-sort="customer" onclick="sortDeliveredTable('customer')" style="cursor:pointer;user-select:none;">โรงพยาบาล</th>
+              <th data-sort="delivery_date" onclick="sortDeliveredTable('delivery_date')" style="cursor:pointer;user-select:none;">วันส่งมอบ</th>
+              <th data-sort="warranty_years" onclick="sortDeliveredTable('warranty_years')" style="cursor:pointer;user-select:none;">ประกัน</th>
+              <th data-sort="warranty_expiry" onclick="sortDeliveredTable('warranty_expiry')" style="cursor:pointer;user-select:none;">วันหมดประกัน</th>
+              <th data-sort="pm_interval" onclick="sortDeliveredTable('pm_interval')" style="cursor:pointer;user-select:none;">รอบ PM</th>
+              <th>เอกสาร</th>
+              <th>จัดการ</th>
+            </tr></thead>
             <tbody id="body-delivered"></tbody>
           </table>
         </div>
@@ -606,6 +648,17 @@
 
       <!-- ====== MASTER: PARTS ====== -->
       <section id="view-section-master-parts" class="view-section">
+        <!-- Banner: กลับไปรับเข้า/จ่ายออก หลังเพิ่มอะไหล่เสร็จ -->
+        <div id="return-to-stock-banner" style="display:none;align-items:center;justify-content:space-between;gap:14px;background:linear-gradient(135deg,#fef3c7,#fed7aa);border:1.5px solid #f59e0b;border-radius:var(--radius-md);padding:14px 18px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <i data-lucide="info" style="width:20px;height:20px;color:#d97706;"></i>
+            <div>
+              <div style="font-weight:700;color:#92400e;">มีรายการ <span class="return-mode-label">รับเข้า</span> ค้างอยู่</div>
+              <div style="font-size:.78rem;color:#78350f;">เมื่อเพิ่มอะไหล่ใหม่เสร็จแล้ว กดปุ่มด้านขวาเพื่อกลับไปทำต่อ</div>
+            </div>
+          </div>
+          <button class="btn btn-warning btn-sm" onclick="returnToPendingStock()"><i data-lucide="arrow-left"></i>กลับไปดำเนินการต่อ</button>
+        </div>
         <div class="filter-bar">
           <div class="search-box-wrapper">
             <i data-lucide="search"></i>
@@ -644,38 +697,38 @@
               <p style="font-size:.8rem;color:var(--text-muted);">Export ข้อมูลในระบบออกเป็นไฟล์ CSV หรือพิมพ์รายงาน</p>
             </div>
           </div>
-          <div class="export-grid">
-            <div class="export-card" onclick="exportCSV('repair_jobs')">
+          <div class="export-grid" id="reports-export-grid">
+            <div class="export-card" data-report="repair_jobs" onclick="exportCSV('repair_jobs')">
               <div class="export-card-icon" style="background:rgba(99,102,241,.1);"><i data-lucide="wrench" style="width:22px;height:22px;color:var(--primary);"></i></div>
               <h4>รายงานงานซ่อม</h4>
               <p>Export ทะเบียนงานซ่อมทั้งหมด</p>
               <span class="badge badge-registered">CSV</span>
             </div>
-            <div class="export-card" onclick="exportCSV('onsite_jobs')">
+            <div class="export-card" data-report="onsite_jobs" onclick="exportCSV('onsite_jobs')">
               <div class="export-card-icon" style="background:rgba(6,182,212,.1);"><i data-lucide="navigation" style="width:22px;height:22px;color:var(--info);"></i></div>
               <h4>รายงาน Onsite/Oncall</h4>
               <p>Export ประวัติงานนอกสถานที่</p>
               <span class="badge badge-info" style="background:rgba(6,182,212,.1);color:#0891b2;">CSV</span>
             </div>
-            <div class="export-card" onclick="exportCSV('pm_jobs')">
+            <div class="export-card" data-report="pm_jobs" onclick="exportCSV('pm_jobs')">
               <div class="export-card-icon" style="background:rgba(245,158,11,.1);"><i data-lucide="calendar-check" style="width:22px;height:22px;color:var(--warning);"></i></div>
               <h4>รายงาน PM</h4>
               <p>Export แผน PM ทั้งหมด</p>
               <span class="badge badge-warning">CSV</span>
             </div>
-            <div class="export-card" onclick="exportCSV('delivered_products')">
+            <div class="export-card" data-report="delivered_products" onclick="exportCSV('delivered_products')">
               <div class="export-card-icon" style="background:rgba(16,185,129,.1);"><i data-lucide="package-check" style="width:22px;height:22px;color:var(--success);"></i></div>
               <h4>รายงานเครื่องส่งมอบ</h4>
               <p>Export ทะเบียนเครื่องลูกค้า</p>
               <span class="badge badge-success">CSV</span>
             </div>
-            <div class="export-card" onclick="exportCSV('parts')">
+            <div class="export-card" data-report="parts" onclick="exportCSV('parts')">
               <div class="export-card-icon" style="background:rgba(139,92,246,.1);"><i data-lucide="package" style="width:22px;height:22px;color:#7c3aed;"></i></div>
               <h4>รายงานอะไหล่คงคลัง</h4>
               <p>Export รายการสต็อกทั้งหมด</p>
               <span class="badge badge-returned">CSV</span>
             </div>
-            <div class="export-card" onclick="exportCSV('parts_transactions')">
+            <div class="export-card" data-report="parts_transactions" onclick="exportCSV('parts_transactions')">
               <div class="export-card-icon" style="background:rgba(239,68,68,.1);"><i data-lucide="arrow-right-left" style="width:22px;height:22px;color:var(--danger);"></i></div>
               <h4>รายงานเบิกจ่ายอะไหล่</h4>
               <p>Export ประวัติ Transaction ทั้งหมด</p>
@@ -688,17 +741,30 @@
         <div class="panel">
           <div class="panel-header">
             <h3 class="panel-title"><i data-lucide="table"></i>ตัวอย่างข้อมูล (Preview)</h3>
-            <div style="display:flex;gap:8px;align-items:center;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <select id="report-preview-select" class="form-control" style="min-width:180px;" onchange="loadReportPreview()">
-                <option value="repair_jobs">งานซ่อม</option>
-                <option value="onsite_jobs">Onsite/Oncall</option>
-                <option value="pm_jobs">PM</option>
-                <option value="delivered_products">เครื่องส่งมอบ</option>
-                <option value="parts">อะไหล่</option>
+                <option value="repair_jobs" data-roles="manager,supervisor,admin">งานซ่อม</option>
+                <option value="onsite_jobs" data-roles="manager,supervisor,admin">Onsite/Oncall</option>
+                <option value="pm_jobs" data-roles="manager,supervisor,admin">PM</option>
+                <option value="delivered_products" data-roles="manager,supervisor,admin">เครื่องส่งมอบ</option>
+                <option value="parts" data-roles="manager,supervisor,admin,warehouse">อะไหล่คงคลัง</option>
+                <option value="parts_transactions" data-roles="manager,supervisor,admin,warehouse">เบิกจ่ายอะไหล่</option>
               </select>
+              <button class="btn btn-outline btn-sm" onclick="toggleColumnSelector()" title="เลือกคอลัมน์ที่จะแสดง">
+                <i data-lucide="columns"></i>เลือกคอลัมน์
+              </button>
               <button class="btn btn-outline btn-sm" onclick="exportCSV(document.getElementById('report-preview-select').value)">
                 <i data-lucide="download"></i>Export
               </button>
+            </div>
+          </div>
+          <!-- Column selector panel -->
+          <div id="report-column-selector" style="display:none;background:rgba(99,102,241,.04);border:1px solid rgba(99,102,241,.2);border-radius:var(--radius-md);padding:12px;margin-bottom:12px;">
+            <div style="font-weight:700;font-size:.85rem;margin-bottom:8px;color:var(--primary);">เลือกคอลัมน์ที่จะแสดง:</div>
+            <div id="report-column-checkboxes" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <button class="btn btn-secondary btn-sm" onclick="selectAllReportColumns(true)"><i data-lucide="check-square"></i>เลือกทั้งหมด</button>
+              <button class="btn btn-secondary btn-sm" onclick="selectAllReportColumns(false)"><i data-lucide="square"></i>ล้าง</button>
             </div>
           </div>
           <div class="table-responsive" id="report-preview-table-container">
@@ -893,8 +959,11 @@
         <!-- Filled by JS -->
       </div>
 
-      <!-- ปุ่มพิมพ์ประวัติงานละเอียด -->
-      <div style="text-align:right;margin-bottom:18px;">
+      <!-- ปุ่มจัดการขั้นตอน -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-warning btn-sm" id="btn-rollback-step" style="display:none;" onclick="rollbackRepairStep()">
+          <i data-lucide="undo-2"></i><span id="rollback-step-label">ย้อนกลับขั้นตอนก่อนหน้า</span>
+        </button>
         <button type="button" class="btn btn-outline btn-sm" id="btn-print-job-history" onclick="printJobHistory(document.getElementById('rep-prog-id').value)">
           <i data-lucide="printer"></i>พิมพ์ประวัติงานละเอียด
         </button>
@@ -1034,8 +1103,8 @@
         <div id="quote-mode-quotation">
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">เลขที่ใบเสนอราคา <span style="color:var(--danger)">*</span></label>
-              <input type="text" id="rep-quote-no" class="form-control" placeholder="QT-2026-XXXX">
+              <label class="form-label">เลขที่ใบเสนอราคา <span style="color:var(--success);font-size:.78rem;">(Run อัตโนมัติ)</span></label>
+              <input type="text" id="rep-quote-no" class="form-control" readonly style="background:rgba(0,0,0,.03);font-family:monospace;font-weight:700;color:var(--primary);">
             </div>
             <div class="form-group">
               <label class="form-label">วันที่เสนอราคา</label>
@@ -1056,6 +1125,7 @@
                 <tbody id="rep-quote-parts-body"></tbody>
                 <tfoot>
                   <tr><td colspan="4" style="text-align:right;padding:8px 16px;">ค่าแรง/ค่าบริการ:</td><td colspan="2" style="padding:8px 16px;"><input type="number" id="rep-service-fee" class="form-control" value="1500" min="0" style="width:120px;" oninput="recalcQuoteTotal()"></td></tr>
+                  <tr><td colspan="4" style="text-align:right;padding:8px 16px;">ส่วนลด (฿):</td><td colspan="2" style="padding:8px 16px;"><input type="number" id="rep-quote-discount" class="form-control" value="0" min="0" style="width:120px;" oninput="recalcQuoteTotal()"></td></tr>
                   <tr style="background:rgba(99,102,241,.04);"><td colspan="4" style="text-align:right;font-weight:800;padding:10px 16px;">รวมก่อน VAT:</td><td id="rep-quote-subtotal" style="font-weight:800;color:var(--primary);padding:10px 16px;" colspan="2">฿0</td></tr>
                   <tr><td colspan="4" style="text-align:right;padding:6px 16px;">VAT 7%:</td><td id="rep-quote-vat" style="padding:6px 16px;" colspan="2">฿0</td></tr>
                   <tr style="background:rgba(99,102,241,.08);"><td colspan="4" style="text-align:right;font-weight:800;padding:10px 16px;font-size:1rem;">ยอดรวมสุทธิ:</td><td id="rep-quote-grand" style="font-weight:800;color:var(--primary);font-size:1rem;padding:10px 16px;" colspan="2">฿0</td></tr>
@@ -1489,7 +1559,7 @@
 
 <!-- Modal: Warehouse IN -->
 <div class="modal-overlay" id="modal-warehouse-in">
-  <div class="modal-container" style="max-width:660px;">
+  <div class="modal-container" style="max-width:720px;">
     <div class="modal-header">
       <h3 class="modal-title">รับอะไหล่เข้าคลัง (Stock IN)</h3>
       <button class="modal-close" onclick="closeModal('modal-warehouse-in')">&times;</button>
@@ -1497,9 +1567,23 @@
     <div class="modal-body">
       <form id="form-warehouse-in">
         <div class="form-group"><label class="form-label">เลขที่เอกสารอ้างอิง <span style="color:var(--danger)">*</span></label><input type="text" id="wh-in-ref" class="form-control" placeholder="Invoice / บิลซื้อ..." required></div>
+
+        <!-- Barcode scanner -->
+        <div style="background:linear-gradient(135deg,rgba(99,102,241,.08),rgba(99,102,241,.02));border:1.5px solid rgba(99,102,241,.25);border-radius:var(--radius-md);padding:12px;margin-bottom:12px;">
+          <label class="form-label" style="display:flex;align-items:center;gap:6px;color:var(--primary);font-weight:700;"><i data-lucide="scan-line" style="width:16px;height:16px;"></i>ยิงบาร์โค้ด / พิมพ์รหัสอะไหล่</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" id="wh-in-barcode-input" class="form-control" placeholder="ยิงหรือพิมพ์รหัสอะไหล่แล้วกด Enter..." style="flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault();addStockInByCode();}">
+            <button type="button" class="btn btn-primary btn-sm" onclick="addStockInByCode()"><i data-lucide="plus"></i>เพิ่ม</button>
+          </div>
+          <div style="font-size:.72rem;color:var(--text-muted);margin-top:6px;">💡 ถ้าไม่พบรหัสในระบบ ให้คลิก <strong style="color:var(--primary);">"เพิ่มอะไหล่ใหม่"</strong> ด้านล่างเพื่อสร้างข้อมูลก่อน</div>
+        </div>
+
         <label class="form-label" style="margin-top:12px;display:block;">รายการอะไหล่:</label>
         <div id="wh-in-items-list" style="margin-bottom:16px;"></div>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="addBulkInRow()" style="margin-bottom:20px;"><i data-lucide="plus"></i>เพิ่มแถว</button>
+        <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addBulkInRow()"><i data-lucide="plus"></i>เพิ่มแถวว่าง</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="gotoMasterPartsFromStock('in')"><i data-lucide="settings-2"></i>เพิ่มอะไหล่ใหม่ในฐานข้อมูล</button>
+        </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="closeModal('modal-warehouse-in')">ยกเลิก</button>
           <button type="submit" class="btn btn-success"><i data-lucide="arrow-down-to-line"></i>ยืนยันรับเข้าสต็อก</button>
@@ -1511,7 +1595,7 @@
 
 <!-- Modal: Warehouse OUT -->
 <div class="modal-overlay" id="modal-warehouse-out">
-  <div class="modal-container" style="max-width:600px;">
+  <div class="modal-container" style="max-width:660px;">
     <div class="modal-header">
       <h3 class="modal-title">เบิกจ่ายอะไหล่ออกคลัง (Stock OUT)</h3>
       <button class="modal-close" onclick="closeModal('modal-warehouse-out')">&times;</button>
@@ -1519,9 +1603,23 @@
     <div class="modal-body">
       <form id="form-warehouse-out">
         <div class="form-group"><label class="form-label">เลขที่ใบเบิก / รหัสงาน <span style="color:var(--danger)">*</span></label><input type="text" id="wh-out-ref" class="form-control" placeholder="MESRJ... หรือเลขอ้างอิง..." required></div>
+
+        <!-- Barcode scanner -->
+        <div style="background:linear-gradient(135deg,rgba(239,68,68,.08),rgba(239,68,68,.02));border:1.5px solid rgba(239,68,68,.25);border-radius:var(--radius-md);padding:12px;margin-bottom:12px;">
+          <label class="form-label" style="display:flex;align-items:center;gap:6px;color:#dc2626;font-weight:700;"><i data-lucide="scan-line" style="width:16px;height:16px;"></i>ยิงบาร์โค้ด / พิมพ์รหัสอะไหล่</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" id="wh-out-barcode-input" class="form-control" placeholder="ยิงหรือพิมพ์รหัสอะไหล่แล้วกด Enter..." style="flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault();addStockOutByCode();}">
+            <button type="button" class="btn btn-danger btn-sm" onclick="addStockOutByCode()"><i data-lucide="plus"></i>เพิ่ม</button>
+          </div>
+          <div style="font-size:.72rem;color:var(--text-muted);margin-top:6px;">💡 ถ้าไม่พบรหัสในระบบ ให้คลิก <strong style="color:var(--primary);">"เพิ่มอะไหล่ใหม่"</strong> ด้านล่างก่อน</div>
+        </div>
+
         <label class="form-label" style="margin-top:12px;display:block;">รายการอะไหล่ที่เบิก:</label>
         <div id="wh-out-items-list" style="margin-bottom:16px;"></div>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="addBulkOutRow()" style="margin-bottom:20px;"><i data-lucide="plus"></i>เพิ่มแถว</button>
+        <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addBulkOutRow()"><i data-lucide="plus"></i>เพิ่มแถวว่าง</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="gotoMasterPartsFromStock('out')"><i data-lucide="settings-2"></i>เพิ่มอะไหล่ใหม่ในฐานข้อมูล</button>
+        </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="closeModal('modal-warehouse-out')">ยกเลิก</button>
           <button type="submit" class="btn btn-danger"><i data-lucide="arrow-up-from-line"></i>ยืนยันตัด Stock</button>
@@ -1636,7 +1734,19 @@
     <div class="modal-body">
       <form id="form-master-product">
         <input type="hidden" id="prod-form-id">
-        <div class="form-group"><label class="form-label">รหัสสินค้า</label><input type="text" id="prod-form-pid" class="form-control" readonly></div>
+        <div class="form-group">
+          <label class="form-label">รหัสสินค้า <span style="color:var(--danger)">*</span></label>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+            <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;cursor:pointer;">
+              <input type="radio" name="prod-code-mode" value="manual" checked onchange="toggleProdCodeMode('manual')"> พิมพ์รหัสตามผู้ผลิต
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;cursor:pointer;">
+              <input type="radio" name="prod-code-mode" value="auto" onchange="toggleProdCodeMode('auto')"> Run อัตโนมัติ
+            </label>
+          </div>
+          <input type="text" id="prod-form-pid" class="form-control" required placeholder="เช่น LP15-2024 (ตามผู้ผลิต)">
+          <div id="prod-code-auto-note" style="display:none;font-size:.75rem;color:var(--primary);margin-top:4px;"><i data-lucide="info" style="width:12px;height:12px;display:inline;vertical-align:middle;"></i> ระบบจะสร้างรหัสอัตโนมัติเมื่อบันทึก (เช่น PROD005)</div>
+        </div>
         <div class="form-group"><label class="form-label">ชื่อเครื่องมือแพทย์ <span style="color:var(--danger)">*</span></label><input type="text" id="prod-form-name" class="form-control" required></div>
         <div class="form-group"><label class="form-label">ยี่ห้อ / Brand <span style="color:var(--danger)">*</span></label><input type="text" id="prod-form-brand" class="form-control" required></div>
         <div class="modal-footer">
@@ -1658,9 +1768,22 @@
     <div class="modal-body">
       <form id="form-master-part">
         <input type="hidden" id="part-form-id">
-        <div class="form-row">
-          <div class="form-group"><label class="form-label">รหัสอะไหล่</label><input type="text" id="part-form-pid" class="form-control" readonly></div>
-          <div class="form-group"><label class="form-label">รหัสสินค้า (Part Code) <span style="color:var(--danger)">*</span></label><input type="text" id="part-form-code" class="form-control" required placeholder="PART-XX-000"></div>
+        <div class="form-group">
+          <label class="form-label">รหัสอะไหล่ในระบบ</label>
+          <input type="text" id="part-form-pid" class="form-control" readonly style="background:rgba(0,0,0,.03);">
+        </div>
+        <div class="form-group">
+          <label class="form-label">รหัสสินค้า (Part Code) <span style="color:var(--danger)">*</span></label>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+            <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;cursor:pointer;">
+              <input type="radio" name="code-mode" value="manual" checked onchange="togglePartCodeMode('manual')"> พิมพ์รหัสตามผู้ผลิต
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;cursor:pointer;">
+              <input type="radio" name="code-mode" value="auto" onchange="togglePartCodeMode('auto')"> Run อัตโนมัติ
+            </label>
+          </div>
+          <input type="text" id="part-form-code" class="form-control" required placeholder="เช่น FS-2A-250V (ตามผู้ผลิต)">
+          <div id="part-code-auto-note" style="display:none;font-size:.75rem;color:var(--primary);margin-top:4px;"><i data-lucide="info" style="width:12px;height:12px;display:inline;vertical-align:middle;"></i> ระบบจะสร้างรหัสอัตโนมัติเมื่อบันทึก (เช่น PART-AUTO-001)</div>
         </div>
         <div class="form-group"><label class="form-label">ชื่ออะไหล่ <span style="color:var(--danger)">*</span></label><input type="text" id="part-form-name" class="form-control" required></div>
         <div class="form-row">
@@ -1860,7 +1983,7 @@
 <!-- CDN SCRIPTS -->
 <script src="https://unpkg.com/lucide@latest"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="db.js"></script>
+<script src="db-supabase.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

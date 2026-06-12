@@ -18,12 +18,33 @@
     // ตรวจ URL param ?track=JOBID ก่อน — ถ้ามีให้แสดงหน้า tracking (ไม่ต้อง login)
     var params = new URLSearchParams(window.location.search);
     var trackId = params.get('track');
-    if (trackId) {
-      showTrackingPage(trackId);
-      return;
+
+    // ถ้าใช้ Supabase backend (มี DB.boot) → โหลดข้อมูลจาก cloud ก่อน
+    function startApp() {
+      if (trackId) { showTrackingPage(trackId); return; }
+      checkSession();
+      setupFormListeners();
     }
-    checkSession();
-    setupFormListeners();
+
+    if (typeof DB.boot === 'function') {
+      // แสดง loading ระหว่างโหลดจาก cloud
+      var bootMsg = document.createElement('div');
+      bootMsg.id = 'boot-loading';
+      bootMsg.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:Sarabun,sans-serif;';
+      bootMsg.innerHTML = '<div style="width:42px;height:42px;border:4px solid #e2e8f0;border-top-color:#6366f1;border-radius:50%;animation:bootspin 0.8s linear infinite;"></div><div style="color:#475569;font-weight:600;">กำลังเชื่อมต่อฐานข้อมูล...</div><style>@keyframes bootspin{to{transform:rotate(360deg)}}</style>';
+      document.body.appendChild(bootMsg);
+      DB.boot().then(function(){
+        var bm = document.getElementById('boot-loading'); if (bm) bm.remove();
+        startApp();
+      }).catch(function(err){
+        console.error('[DB] boot failed', err);
+        var bm = document.getElementById('boot-loading');
+        if (bm) bm.innerHTML = '<div style="color:#dc2626;font-weight:700;">เชื่อมต่อฐานข้อมูลไม่สำเร็จ</div><div style="color:#64748b;font-size:.85rem;">กรุณาตรวจสอบการตั้งค่า Supabase แล้วรีเฟรชหน้า</div>';
+      });
+    } else {
+      startApp();
+    }
+
     document.addEventListener('click', function (e) {
       const dd = document.getElementById('notification-dropdown');
       const bell = document.getElementById('notif-bell-btn');
@@ -282,18 +303,16 @@
       if (btn) btn.style.display = ['admin','engineer'].includes(user.role) ? 'inline-flex' : 'none';
     });
 
-    // Warehouse role: ซ่อนเมนูที่ไม่เกี่ยวข้อง เหลือแค่คลังอะไหล่
+    // Warehouse role: เห็นได้ — Dashboard, คลังอะไหล่, จัดการอะไหล่, รายงาน
     if (user.role === 'warehouse') {
+      var whAllowedViews = ['dashboard','warehouse','master-parts','reports'];
       var sidebarSections = ['sec-overview','sec-service','sec-assets','sec-master','sec-reports'];
       sidebarSections.forEach(function(secId) {
         var sec = document.getElementById(secId);
         if (sec) {
-          // ซ่อนทุกเมนูยกเว้น warehouse
           sec.querySelectorAll('.menu-item').forEach(function(item) {
             var view = item.getAttribute('data-view');
-            if (view !== 'warehouse' && view !== 'dashboard') {
-              item.style.display = 'none';
-            }
+            item.style.display = whAllowedViews.includes(view) ? '' : 'none';
           });
         }
       });
@@ -302,6 +321,21 @@
       if (secAdmin) secAdmin.style.display = 'none';
       var adminLabel = document.getElementById('admin-section-label');
       if (adminLabel) adminLabel.style.display = 'none';
+    }
+
+    // เมนูเกี่ยวกับอะไหล่ (warehouse, master-parts, reports) — เปิดให้เฉพาะ Warehouse + Manager เท่านั้น
+    // หมายเหตุ: warehouse role ผ่าน block ด้านบนแล้ว ตรงนี้คุมเฉพาะ engineer/supervisor/admin
+    if (['engineer','supervisor','admin'].includes(user.role)) {
+      var partsOnly = {
+        'warehouse':   user.role === 'admin', // admin เห็นได้, engineer/supervisor ซ่อน
+        'master-parts': false,                 // เฉพาะ manager + warehouse
+        'reports':      user.role === 'admin'  // admin เห็นได้, engineer/supervisor ซ่อน
+      };
+      ['warehouse','master-parts','reports'].forEach(function(view) {
+        document.querySelectorAll('.menu-item[data-view="' + view + '"]').forEach(function(item) {
+          item.style.display = partsOnly[view] ? '' : 'none';
+        });
+      });
     }
   }
 
@@ -371,7 +405,7 @@
       case 'master-customers': renderMasterCustomers(); break;
       case 'master-zones':     renderMasterZones(); break;
       case 'master-products': renderMasterProducts(); break;
-      case 'master-parts': renderMasterParts(); break;
+      case 'master-parts': renderMasterParts(); updateReturnToStockBanner(); break;
       case 'reports': loadReportPreview(); break;
       case 'users': renderUsersTable(); break;
       case 'company': renderCompanyView(); break;
@@ -639,9 +673,119 @@
     }).length;
   }
 
+  // Dashboard panel สำหรับ user คลัง — สรุปข้อมูลคลังอะไหล่
+  function renderWarehouseDashboardPanel() {
+    var panel = document.getElementById('dash-warehouse-panel');
+    if (!panel) return;
+    panel.style.display = 'block';
+
+    var parts = DB.getAll('parts');
+    var txns = DB.getAll('parts_transactions') || [];
+    var repairs = DB.getAll('repair_jobs');
+
+    // สรุปตัวเลข
+    var totalSkus = parts.length;
+    var totalQty = parts.reduce(function(s,p){ return s + (p.stock||0); }, 0);
+    var lowStockCount = parts.filter(function(p){ return p.stock <= p.min_stock; }).length;
+    var outOfStock = parts.filter(function(p){ return p.stock === 0; }).length;
+    var pendingIssue = repairs.filter(function(j){
+      return ['po_received','claim_approved','claimed'].includes(j.status) && (j.parts_needed||[]).length > 0;
+    }).length;
+
+    // Transactions เดือนนี้
+    var today = new Date();
+    var curYM = today.toISOString().substring(0,7);
+    var txnsThisMonth = txns.filter(function(t){ return (t.date||'').substring(0,7) === curYM; });
+    var inCount  = txnsThisMonth.filter(function(t){ return t.type==='in'; }).length;
+    var outCount = txnsThisMonth.filter(function(t){ return t.type==='out'; }).length;
+
+    // Top 5 อะไหล่ที่จ่ายมากที่สุดเดือนนี้
+    var outQtyMap = {};
+    txnsThisMonth.filter(function(t){ return t.type==='out'; }).forEach(function(t) {
+      (t.items||[]).forEach(function(i) { outQtyMap[i.part_id] = (outQtyMap[i.part_id]||0) + i.qty; });
+    });
+    var top5 = Object.keys(outQtyMap).map(function(pid) {
+      var p = parts.find(function(x){ return x.id===pid; });
+      return { name: p ? p.name : pid, code: p ? p.code : pid, qty: outQtyMap[pid] };
+    }).sort(function(a,b){ return b.qty - a.qty; }).slice(0,5);
+
+    // อะไหล่สต็อกต่ำ (รายการที่เกินกว่า min_stock)
+    var lowList = parts.filter(function(p){ return p.stock <= p.min_stock; }).slice(0, 8);
+
+    var fmt = function(n){ return Number(n||0).toLocaleString('th-TH'); };
+
+    panel.innerHTML =
+      // สรุปตัวเลขแถวบน
+      '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px;">' +
+        '<div style="background:linear-gradient(135deg,#0369a1,#0ea5e9);color:#fff;padding:16px;border-radius:var(--radius-md);">' +
+          '<div style="font-size:.75rem;opacity:.85;">ชนิดอะไหล่ทั้งหมด</div>' +
+          '<div style="font-size:1.6rem;font-weight:800;line-height:1.2;">' + fmt(totalSkus) + '</div>' +
+          '<div style="font-size:.72rem;opacity:.8;">SKU</div>' +
+        '</div>' +
+        '<div style="background:linear-gradient(135deg,#065f46,#10b981);color:#fff;padding:16px;border-radius:var(--radius-md);">' +
+          '<div style="font-size:.75rem;opacity:.85;">จำนวนรวมในคลัง</div>' +
+          '<div style="font-size:1.6rem;font-weight:800;line-height:1.2;">' + fmt(totalQty) + '</div>' +
+          '<div style="font-size:.72rem;opacity:.8;">ชิ้น</div>' +
+        '</div>' +
+        '<div style="background:linear-gradient(135deg,#b45309,#f59e0b);color:#fff;padding:16px;border-radius:var(--radius-md);">' +
+          '<div style="font-size:.75rem;opacity:.85;">สต็อกต่ำ</div>' +
+          '<div style="font-size:1.6rem;font-weight:800;line-height:1.2;">' + fmt(lowStockCount) + '</div>' +
+          '<div style="font-size:.72rem;opacity:.8;">รายการต้องสั่งซื้อ</div>' +
+        '</div>' +
+        '<div style="background:linear-gradient(135deg,#991b1b,#ef4444);color:#fff;padding:16px;border-radius:var(--radius-md);">' +
+          '<div style="font-size:.75rem;opacity:.85;">หมดสต็อก</div>' +
+          '<div style="font-size:1.6rem;font-weight:800;line-height:1.2;">' + fmt(outOfStock) + '</div>' +
+          '<div style="font-size:.72rem;opacity:.8;">รายการ</div>' +
+        '</div>' +
+        '<div style="background:linear-gradient(135deg,#6d28d9,#8b5cf6);color:#fff;padding:16px;border-radius:var(--radius-md);cursor:pointer;" onclick="switchView(\'warehouse\')">' +
+          '<div style="font-size:.75rem;opacity:.85;">งานรอจ่ายอะไหล่</div>' +
+          '<div style="font-size:1.6rem;font-weight:800;line-height:1.2;">' + fmt(pendingIssue) + '</div>' +
+          '<div style="font-size:.72rem;opacity:.8;">รอดำเนินการ →</div>' +
+        '</div>' +
+      '</div>' +
+
+      // 2 panel ล่าง — Top 5 จ่ายเดือนนี้ + รายการสต็อกต่ำ
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">' +
+        '<div class="panel" style="margin:0;">' +
+          '<div class="panel-header"><h3 class="panel-title"><i data-lucide="trending-up"></i>5 อะไหล่จ่ายมากสุด (เดือนนี้)</h3></div>' +
+          '<div style="font-size:.78rem;color:var(--text-muted);margin-bottom:10px;">รับเข้า ' + inCount + ' / จ่ายออก ' + outCount + ' รายการ</div>' +
+          (top5.length > 0
+            ? '<div style="display:flex;flex-direction:column;gap:8px;">' +
+              top5.map(function(p, i) {
+                var maxQty = top5[0].qty;
+                var pct = Math.round((p.qty/maxQty) * 100);
+                return '<div>' +
+                  '<div style="display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:3px;">' +
+                    '<span style="font-weight:600;"><span style="color:var(--primary);font-weight:800;">' + (i+1) + '.</span> ' + p.name + '</span>' +
+                    '<span style="font-weight:700;color:var(--primary);">' + p.qty + ' ชิ้น</span>' +
+                  '</div>' +
+                  '<div style="height:6px;background:rgba(0,0,0,.06);border-radius:3px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:linear-gradient(90deg,#6366f1,#8b5cf6);"></div></div>' +
+                '</div>';
+              }).join('') + '</div>'
+            : '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:.85rem;">ยังไม่มีการจ่ายอะไหล่เดือนนี้</div>') +
+        '</div>' +
+
+        '<div class="panel" style="margin:0;border:1.5px solid rgba(239,68,68,.2);background:rgba(239,68,68,.02);">' +
+          '<div class="panel-header"><h3 class="panel-title" style="color:#dc2626;"><i data-lucide="alert-circle"></i>อะไหล่ที่ต้องสั่งซื้อ</h3></div>' +
+          (lowList.length > 0
+            ? '<div style="display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:auto;">' +
+              lowList.map(function(p) {
+                var critical = p.stock === 0;
+                return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#fff;border-radius:6px;border-left:3px solid ' + (critical?'#dc2626':'#f59e0b') + ';">' +
+                  '<div style="flex:1;min-width:0;"><div style="font-size:.85rem;font-weight:600;">' + p.name + '</div><div style="font-size:.7rem;color:var(--text-muted);font-family:monospace;">' + p.code + '</div></div>' +
+                  '<div style="text-align:right;"><div style="font-size:.95rem;font-weight:800;color:' + (critical?'#dc2626':'#d97706') + ';">' + p.stock + '</div><div style="font-size:.65rem;color:var(--text-muted);">ขั้นต่ำ ' + p.min_stock + '</div></div>' +
+                '</div>';
+              }).join('') + '</div>'
+            : '<div style="padding:20px;text-align:center;color:var(--success);font-size:.85rem;">✓ สต็อกอะไหล่ทุกชิ้นเพียงพอ</div>') +
+        '</div>' +
+      '</div>';
+    lucide.createIcons();
+  }
+
   function renderDashboard() {
     var user = DB.getCurrentUser();
     var isEngineer = user.role === 'engineer';
+    var isWarehouse = user.role === 'warehouse';
     var repairs = DB.getAll('repair_jobs');
     var onsites = DB.getAll('onsite_jobs');
     var pmJobs = DB.getAll('pm_jobs');
@@ -652,7 +796,6 @@
     if (isEngineer) {
       repairs = repairs.filter(function(j){ return j.created_by===user.id || j.assigned_to===user.id; });
       onsites = onsites.filter(function(j){ return j.created_by===user.id || j.assigned_to===user.id; });
-      // PM เฉพาะเครื่องในเขตที่ช่างรับผิดชอบ
       var myZone = user.zone;
       var myCustomers = DB.getAll('customers').filter(function(c){ return c.zone === myZone; }).map(function(c){ return c.id; });
       var mySns = delivered.filter(function(d){ return myCustomers.includes(d.customer_id); }).map(function(d){ return d.sn; });
@@ -662,19 +805,58 @@
     // อัปเดต label หัวข้อ Dashboard ตาม role
     var dashTitle = document.getElementById('dash-scope-label');
     if (dashTitle) {
-      dashTitle.textContent = isEngineer ? '(ภาพรวมงานของฉัน)' : '(ภาพรวมทั้งระบบ)';
+      var lbl = isEngineer ? '(ภาพรวมงานของฉัน)' : (isWarehouse ? '(ภาพรวมคลังอะไหล่)' : '(ภาพรวมทั้งระบบ)');
+      dashTitle.textContent = lbl;
       dashTitle.style.display = 'inline';
     }
 
-    // Animated counter — ใช้ข้อมูลที่กรองแล้ว
-    animateCounter('dash-stat-repairs', repairs.filter(function(j){ return j.status !== 'closed'; }).length);
-    animateCounter('dash-stat-onsite', onsites.filter(function(j){ return j.status !== 'closed'; }).length);
-    var pmOverdue = countOverduePm(pmJobs);
-    document.getElementById('dash-stat-pm').textContent = pmOverdue;
-    // สต็อกต่ำ — ช่างไม่เกี่ยวข้องกับคลัง ซ่อนการ์ด
+    // ── Warehouse: แสดงเฉพาะข้อมูลที่เกี่ยวข้องกับคลัง ──
+    var statsGrid = document.querySelector('#view-section-dashboard .stats-grid');
+    var cardRepairs = document.getElementById('card-tab-repairs');
+    var cardOnsite  = document.getElementById('card-tab-onsite');
+    var cardPm      = document.getElementById('card-tab-pm');
     var lowstockCard = document.getElementById('card-tab-lowstock');
-    if (lowstockCard) lowstockCard.style.display = isEngineer ? 'none' : 'flex';
-    animateCounter('dash-stat-lowstock', isEngineer ? 0 : parts.filter(function(p){ return p.stock <= p.min_stock; }).length);
+
+    if (isWarehouse) {
+      // ซ่อนการ์ดและกราฟที่ไม่เกี่ยวกับคลัง
+      if (cardRepairs) cardRepairs.style.display = 'none';
+      if (cardOnsite)  cardOnsite.style.display = 'none';
+      if (cardPm)      cardPm.style.display = 'none';
+      if (lowstockCard) lowstockCard.style.display = 'flex';
+      var chartsLayout = document.getElementById('dash-charts-layout');
+      if (chartsLayout) chartsLayout.style.display = 'none';
+      // ซ่อน panel งานรออนุมัติเคลม + performance
+      var claimPanel = document.getElementById('dash-claim-pending-panel');
+      if (claimPanel) claimPanel.style.display = 'none';
+      var perfP = document.getElementById('panel-performance-view');
+      if (perfP) perfP.style.display = 'none';
+      // destroy charts เก่า เพื่อให้วาดใหม่สะอาดเมื่อสลับ role กลับ
+      if (monthlyChartInstance) { monthlyChartInstance.destroy(); monthlyChartInstance = null; }
+      if (statusChartInstance)  { statusChartInstance.destroy();  statusChartInstance = null; }
+      // แสดง warehouse summary panel
+      renderWarehouseDashboardPanel();
+      animateCounter('dash-stat-lowstock', parts.filter(function(p){ return p.stock <= p.min_stock; }).length);
+      return; // ไม่ต้อง render chart
+    } else {
+      // คืนสถานะการ์ดปกติ
+      if (cardRepairs) cardRepairs.style.display = '';
+      if (cardOnsite)  cardOnsite.style.display = '';
+      if (cardPm)      cardPm.style.display = '';
+      var chartsLayout2 = document.getElementById('dash-charts-layout');
+      if (chartsLayout2) chartsLayout2.style.display = '';
+      // ซ่อน warehouse panel
+      var whPanel = document.getElementById('dash-warehouse-panel');
+      if (whPanel) whPanel.style.display = 'none';
+
+      // Animated counter — ใช้ข้อมูลที่กรองแล้ว
+      animateCounter('dash-stat-repairs', repairs.filter(function(j){ return j.status !== 'closed'; }).length);
+      animateCounter('dash-stat-onsite', onsites.filter(function(j){ return j.status !== 'closed'; }).length);
+      var pmOverdue = countOverduePm(pmJobs);
+      document.getElementById('dash-stat-pm').textContent = pmOverdue;
+      // สต็อกต่ำ — ช่างไม่เกี่ยวข้องกับคลัง ซ่อนการ์ด
+      if (lowstockCard) lowstockCard.style.display = isEngineer ? 'none' : 'flex';
+      animateCounter('dash-stat-lowstock', isEngineer ? 0 : parts.filter(function(p){ return p.stock <= p.min_stock; }).length);
+    }
 
     // Performance panel: แสดง+populate ก่อน render chart (สำคัญ! ป้องกัน reflow ระหว่างวาดกราฟ)
     var perfPanel = document.getElementById('panel-performance-view');
@@ -934,6 +1116,104 @@
     ]
   };
 
+  // สถานะการเรียง/group ตาราง
+  var _repairSort = { key: 'created_at', dir: 'desc' };
+  window.sortRepairTable = function(key) {
+    if (_repairSort.key === key) {
+      _repairSort.dir = _repairSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      _repairSort.key = key;
+      _repairSort.dir = 'asc';
+    }
+    renderRepairTable();
+  };
+
+  // อัปเดตลูกศรบอกทิศทางการเรียงที่ header
+  function updateRepairSortIndicators() {
+    var headers = document.querySelectorAll('#table-repairs th[data-sort]');
+    headers.forEach(function(th) {
+      var key = th.getAttribute('data-sort');
+      var arrow = th.querySelector('.sort-arrow');
+      if (!arrow) {
+        arrow = document.createElement('span');
+        arrow.className = 'sort-arrow';
+        arrow.style.cssText = 'margin-left:4px;font-size:.7rem;opacity:.5;';
+        th.appendChild(arrow);
+      }
+      if (_repairSort.key === key) {
+        arrow.textContent = _repairSort.dir === 'asc' ? '▲' : '▼';
+        arrow.style.opacity = '1';
+        arrow.style.color = 'var(--primary)';
+      } else {
+        arrow.textContent = '⇅';
+        arrow.style.opacity = '.35';
+        arrow.style.color = 'inherit';
+      }
+    });
+  }
+
+  // Export ตารางงานซ่อมเป็น Excel (.xls ผ่าน HTML table)
+  window.exportRepairExcel = function() {
+    var currentUser = DB.getCurrentUser();
+    var isPrivileged = ['manager','supervisor'].includes(currentUser.role);
+    var isEngineer = currentUser.role === 'engineer';
+    var products = DB.getAll('products'); var customers = DB.getAll('customers'); var users = DB.getAll('users');
+    var jobs = DB.getAll('repair_jobs');
+    if (isEngineer) jobs = jobs.filter(function(j){ return j.created_by===currentUser.id||j.assigned_to===currentUser.id; });
+
+    var head = '<tr><th>เลขที่งาน</th><th>สินค้า</th><th>ยี่ห้อ</th><th>S/N</th><th>ลูกค้า</th>' + (isPrivileged?'<th>ผู้รับผิดชอบ</th>':'') + '<th>วันที่รับแจ้ง</th><th>สถานะ</th></tr>';
+    var rows = jobs.map(function(job) {
+      var prod = products.find(function(p){ return p.id===job.product_id; });
+      var cust = customers.find(function(c){ return c.id===job.customer_id; });
+      var owner = users.find(function(u){ return u.id===(job.assigned_to||job.created_by); });
+      return '<tr><td>' + job.id + '</td><td>' + (prod?prod.name:job.product_name||'-') + '</td><td>' + (prod?prod.brand:job.product_brand||'-') + '</td><td>' + (job.sn||'-') + '</td><td>' + (cust?cust.name:job.customer_name||'-') + '</td>' + (isPrivileged?'<td>' + (owner?owner.fullname:'-') + '</td>':'') + '<td>' + (job.created_at||'').substring(0,10) + '</td><td>' + getStatusLabel(job.status) + '</td></tr>';
+    }).join('');
+
+    var html = '<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body><table border="1">' + head + rows + '</table></body></html>';
+    var blob = new Blob(['\ufeff' + html], { type:'application/vnd.ms-excel' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'รายการงานซ่อม_' + new Date().toISOString().substring(0,10) + '.xls';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('success','Export Excel สำเร็จ','ดาวน์โหลดไฟล์แล้ว');
+  };
+
+  // Export/พิมพ์ตารางงานซ่อมเป็น PDF (ผ่าน print dialog)
+  window.exportRepairPDF = function() {
+    var currentUser = DB.getCurrentUser();
+    var isPrivileged = ['manager','supervisor'].includes(currentUser.role);
+    var isEngineer = currentUser.role === 'engineer';
+    var co = getCompanyInfo();
+    var products = DB.getAll('products'); var customers = DB.getAll('customers'); var users = DB.getAll('users');
+    var jobs = DB.getAll('repair_jobs');
+    if (isEngineer) jobs = jobs.filter(function(j){ return j.created_by===currentUser.id||j.assigned_to===currentUser.id; });
+
+    // เรียงตาม sort ปัจจุบัน
+    var rows = jobs.map(function(job, i) {
+      var prod = products.find(function(p){ return p.id===job.product_id; });
+      var cust = customers.find(function(c){ return c.id===job.customer_id; });
+      var owner = users.find(function(u){ return u.id===(job.assigned_to||job.created_by); });
+      return '<tr><td style="text-align:center;">' + (i+1) + '</td><td style="font-family:monospace;">' + job.id + '</td><td>' + (prod?prod.name:job.product_name||'-') + '<br><span style="font-size:10px;color:#888;">' + (prod?prod.brand:job.product_brand||'') + '</span></td><td style="font-family:monospace;">' + (job.sn||'-') + '</td><td>' + (cust?cust.name:job.customer_name||'-') + '</td>' + (isPrivileged?'<td>' + (owner?owner.fullname.replace('วิศวกร ',''):'-') + '</td>':'') + '<td>' + (job.created_at||'').substring(0,10) + '</td><td>' + getStatusLabel(job.status) + '</td></tr>';
+    }).join('');
+
+    var win = window.open('', '_blank');
+    win.document.write(
+      '<html><head><meta charset="UTF-8"><title>รายการงานซ่อม</title>' +
+      '<style>@import url("https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap");' +
+      'body{font-family:Sarabun,sans-serif;padding:20px;font-size:12px;}h2{text-align:center;margin:4px 0;}' +
+      '.sub{text-align:center;color:#666;font-size:12px;margin-bottom:14px;}' +
+      'table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;font-size:11px;}' +
+      'th{background:#f1f5f9;font-weight:700;}@page{size:A4 landscape;margin:12mm;}</style></head><body>' +
+      '<h2>' + co.name + '</h2><div class="sub">รายการงานซ่อม — พิมพ์เมื่อ ' + nowTs() + ' (ทั้งหมด ' + jobs.length + ' รายการ)</div>' +
+      '<table><thead><tr><th style="width:36px;text-align:center;">#</th><th>เลขที่งาน</th><th>สินค้า/ยี่ห้อ</th><th>S/N</th><th>ลูกค้า</th>' + (isPrivileged?'<th>ผู้รับผิดชอบ</th>':'') + '<th>วันที่รับแจ้ง</th><th>สถานะ</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print();},400);}</scr'+'ipt>' +
+      '</body></html>'
+    );
+    win.document.close();
+  };
+
   function renderRepairTable(list) {
     var currentUser = DB.getCurrentUser();
     var isPrivileged = ['manager','supervisor'].includes(currentUser.role);
@@ -944,21 +1224,69 @@
     } else if (list) {
       allJobs = list;
     }
-    // เรียงจากงานล่าสุดก่อน
-    allJobs = allJobs.slice().sort(function(a,b){
-      return (b.created_at||'').localeCompare(a.created_at||'');
-    });
 
     var products = DB.getAll('products'); var customers = DB.getAll('customers');
     var users = DB.getAll('users');
+
+    // ฟังก์ชันดึงค่าสำหรับเรียงตาม column
+    function sortVal(job, key) {
+      var prod = products.find(function(p){ return p.id === job.product_id; });
+      var cust = customers.find(function(c){ return c.id === job.customer_id; });
+      switch(key) {
+        case 'id':       return job.id || '';
+        case 'product':  return prod ? prod.name : (job.product_name || '');
+        case 'sn':       return job.sn || '';
+        case 'customer': return cust ? cust.name : (job.customer_name || '');
+        case 'owner':    var o = users.find(function(u){ return u.id === (job.assigned_to||job.created_by); }); return o ? o.fullname : '';
+        case 'status':   return REPAIR_STATUS[job.status] ? REPAIR_STATUS[job.status].step : 0;
+        case 'created_at': return job.created_at || '';
+        default: return '';
+      }
+    }
+
+    allJobs = allJobs.slice().sort(function(a, b) {
+      var va = sortVal(a, _repairSort.key);
+      var vb = sortVal(b, _repairSort.key);
+      var cmp = (typeof va === 'number') ? (va - vb) : String(va).localeCompare(String(vb), 'th');
+      return _repairSort.dir === 'asc' ? cmp : -cmp;
+    });
+
     var body = document.getElementById('body-repairs'); if (!body) return;
     // แสดง column ผู้รับผิดชอบเฉพาะ manager/supervisor
     var ownerTh = document.getElementById('repair-th-owner');
     if (ownerTh) ownerTh.style.display = isPrivileged ? 'table-cell' : 'none';
+    // อัปเดตลูกศร sort indicator ที่ header
+    updateRepairSortIndicators();
     body.innerHTML = '';
     if (allJobs.length === 0) { body.innerHTML = '<tr><td colspan="' + (isPrivileged?8:7) + '" style="text-align:center;color:var(--text-muted);padding:30px;">ไม่มีรายการงานซ่อม</td></tr>'; lucide.createIcons(); return; }
 
+    // ตรวจว่า sort key เป็นโหมด "group" (แสดงหัวกลุ่มคั่น)
+    var groupKeys = ['customer','owner','status'];
+    var isGroupMode = groupKeys.includes(_repairSort.key);
+    var colSpan = isPrivileged ? 8 : 7;
+    var lastGroupVal = null;
+
     allJobs.forEach(function(job) {
+      // หัวกลุ่ม (เฉพาะโหมด group)
+      if (isGroupMode) {
+        var groupVal;
+        if (_repairSort.key === 'customer') {
+          var c0 = customers.find(function(c){ return c.id===job.customer_id; });
+          groupVal = c0 ? c0.name : (job.customer_name || '(ไม่ระบุ)');
+        } else if (_repairSort.key === 'owner') {
+          var u0 = users.find(function(u){ return u.id===(job.assigned_to||job.created_by); });
+          groupVal = u0 ? u0.fullname : '(ไม่ระบุ)';
+        } else {
+          groupVal = getStatusLabel(job.status);
+        }
+        if (groupVal !== lastGroupVal) {
+          var grTr = document.createElement('tr');
+          grTr.style.cssText = 'background:linear-gradient(90deg,rgba(99,102,241,.08),rgba(99,102,241,.02));';
+          grTr.innerHTML = '<td colspan="' + colSpan + '" style="padding:8px 14px;font-weight:800;color:var(--primary);font-size:.85rem;"><i data-lucide="folder" style="width:14px;height:14px;display:inline;vertical-align:middle;margin-right:6px;"></i>' + groupVal + '</td>';
+          body.appendChild(grTr);
+          lastGroupVal = groupVal;
+        }
+      }
       var prod = products.find(function(p){ return p.id === job.product_id; });
       var cust = customers.find(function(c){ return c.id === job.customer_id; });
       var prodName  = prod ? prod.name  : (job.product_name  || job.product_id  || '-');
@@ -1055,7 +1383,6 @@
   // ---- Quick-print wrappers (called directly from table buttons) ----
   window.quickPrintQuote = function(jobId) {
     var job = DB.find('repair_jobs','id',jobId); if (!job) return;
-    // Restore parts directly from DB
     _repairSelectedParts = (job.parts_needed||[]).map(function(item){
       var p = DB.find('parts','id',item.part_id)||{};
       return { part_id:item.part_id, name:p.name||item.part_id, code:p.code||'', qty:item.qty, price:p.price||0 };
@@ -1066,57 +1393,215 @@
     var prodBrand = prod.brand || job.product_brand || '-';
     var custName  = cust.name  || job.customer_name  || '-';
     var co     = getCompanyInfo();
-    var qNo    = job.quotation ? job.quotation.number : ('QT-' + new Date().getFullYear() + '-' + jobId.slice(-4));
+    var qNo    = job.quotation ? job.quotation.number : genQuoteNumber();
     var qDate  = job.quotation ? job.quotation.date : new Date().toISOString().substring(0,10);
     var svcFee = job.quotation ? (job.quotation.service_fee||1500) : 1500;
+    var discount = job.quotation ? (job.quotation.discount||0) : 0;
 
     var partsSum = _repairSelectedParts.reduce(function(s,i){ return s+i.qty*i.price; }, 0);
-    var sub  = partsSum + svcFee;
+    var sub  = Math.max(0, partsSum + svcFee - discount);
     var vat  = Math.round(sub * 0.07);
     var grand= sub + vat;
-    var fmt  = function(n){ return '฿' + n.toLocaleString(); };
 
-    // Update status → quote_printed
     if (job.status === 'checked') {
       var ts = job.timestamps || {};
       ts['quote_printed'] = nowTs();
       DB.update('repair_jobs','id',jobId,{ status:'quote_printed', quotation:{ number:qNo, date:qDate, service_fee:svcFee, amount:grand }, step_actors:buildStepActors(job,'quote_printed'), timestamps:ts });
     }
 
-    var rowsHtml = _repairSelectedParts.map(function(item,i){
-      return '<tr><td style="text-align:center;">'+(i+1)+'</td><td>'+item.name+'</td><td style="text-align:center;">'+item.qty+'</td><td style="text-align:right;">'+fmt(item.price)+'</td><td style="text-align:right;">'+fmt(item.qty*item.price)+'</td></tr>';
-    }).join('') + '<tr style="background:rgba(99,102,241,.04);"><td style="text-align:center;">'+(_repairSelectedParts.length+1)+'</td><td>ค่าแรง/ค่าบริการวิศวกรรม</td><td style="text-align:center;">1</td><td style="text-align:right;">'+fmt(svcFee)+'</td><td style="text-align:right;">'+fmt(svcFee)+'</td></tr>';
-
-    var bodyContent =
-      '<div class="g2" style="margin-bottom:14px;">'+
-        '<div><div class="lbl">ลูกค้า / โรงพยาบาล</div><div class="val">'+(cust.name||'-')+'</div>'+
-          '<div style="font-size:.85rem;color:#64748b;margin-top:2px;">'+(cust.address||'')+' '+(cust.province||'')+'</div></div>'+
-        '<div style="text-align:right;">'+
-          '<div class="lbl" style="text-align:right;">เลขที่</div><div class="val" style="text-align:right;font-family:monospace;color:#4f46e5;">'+qNo+'</div>'+
-          '<div class="lbl" style="margin-top:6px;text-align:right;">วันที่</div><div class="val" style="text-align:right;">'+qDate+'</div>'+
-          '<div class="lbl" style="margin-top:6px;text-align:right;">อ้างอิงงาน</div><div class="val" style="text-align:right;font-family:monospace;">'+jobId+'</div>'+
-          '<div class="lbl" style="margin-top:6px;text-align:right;">เครื่องมือ</div><div class="val" style="text-align:right;">'+(prod.name||'-')+(job.sn?' (S/N:'+job.sn+')':'')+'</div>'+
-        '</div>'+
-      '</div>'+
-      '<table><thead><tr><th style="width:40px;text-align:center;">ลำดับ</th><th>รายการ</th><th style="width:60px;text-align:center;">จำนวน</th><th style="width:110px;text-align:right;">ราคา/หน่วย</th><th style="width:120px;text-align:right;">ยอดรวม</th></tr></thead>'+
-      '<tbody>'+rowsHtml+'</tbody></table>'+
-      '<div style="display:flex;justify-content:flex-end;margin-bottom:20px;">'+
-        '<table style="width:250px;border:none;">'+
-          '<tr><td style="padding:4px 8px;border:none;">Subtotal:</td><td style="text-align:right;font-weight:600;padding:4px 8px;border:none;">'+fmt(sub)+'</td></tr>'+
-          '<tr><td style="padding:4px 8px;border:none;">VAT 7%:</td><td style="text-align:right;padding:4px 8px;border:none;">'+fmt(vat)+'</td></tr>'+
-          '<tr style="border-top:2px solid #6366f1;"><td style="padding:8px;font-weight:800;font-size:.95rem;border:none;">Grand Total:</td><td style="text-align:right;font-weight:800;font-size:.95rem;color:#4f46e5;padding:8px;border:none;">'+fmt(grand)+'</td></tr>'+
-        '</table>'+
-      '</div>'+
-      '<div class="sigs">'+
-        '<div><div class="sig-line"></div><div class="sig-lbl">ผู้จัดทำ / วิศวกร</div></div>'+
-        '<div><div class="sig-line"></div><div class="sig-lbl">ผู้อนุมัติ / หัวหน้า</div></div>'+
-        '<div><div class="sig-line"></div><div class="sig-lbl">ผู้สั่งจ้าง / ลูกค้า</div></div>'+
-      '</div>';
-
-    openDocWindow(buildDocHTML('ใบเสนอราคา', bodyContent, jobId, co));
+    openDocWindow(buildQuotationHTML({
+      job:job, co:co, cust:cust, prod:prod, prodName:prodName, prodBrand:prodBrand, custName:custName,
+      qNo:qNo, qDate:qDate, svcFee:svcFee, discount:discount, parts:_repairSelectedParts,
+      partsSum:partsSum, sub:sub, vat:vat, grand:grand, jobId:jobId
+    }));
     renderRepairTable(); computeNotifications();
     showToast('success','พิมพ์ใบเสนอราคาสำเร็จ', job.status==='checked' ? 'สถานะ → เสนอราคาแล้ว' : '');
   };
+
+  // ===== ใบเสนอราคา — ออกแบบมืออาชีพ =====
+  function buildQuotationHTML(d) {
+    var scriptOpen='<scr'+'ipt>', scriptClose='</scr'+'ipt>';
+    var fmt = function(n){ return Number(n||0).toLocaleString('th-TH', {minimumFractionDigits:2, maximumFractionDigits:2}); };
+    var co = d.co, cust = d.cust, job = d.job;
+
+    // แปลงเลขเป็นข้อความไทย (บาท)
+    function bahtText(num) {
+      num = Math.round(num*100)/100;
+      var txt = num.toLocaleString('th-TH', {minimumFractionDigits:2, maximumFractionDigits:2});
+      return txt + ' บาท';
+    }
+
+    // แถวรายการ
+    var rows = '';
+    var idx = 1;
+    d.parts.forEach(function(item) {
+      rows += '<tr>' +
+        '<td style="text-align:center;">'+(idx++)+'</td>' +
+        '<td>'+item.name+(item.code?' <span style="color:#94a3b8;font-size:9px;">['+item.code+']</span>':'')+'</td>' +
+        '<td style="text-align:center;">'+item.qty+'</td>' +
+        '<td style="text-align:right;">'+fmt(item.price)+'</td>' +
+        '<td style="text-align:right;">'+fmt(item.qty*item.price)+'</td>' +
+      '</tr>';
+    });
+    // ค่าบริการ
+    rows += '<tr>' +
+      '<td style="text-align:center;">'+(idx++)+'</td>' +
+      '<td>ค่าบริการ / ค่าแรงวิศวกรรม<div style="font-size:9px;color:#64748b;margin-top:2px;">ตรวจซ่อมและทดสอบ '+d.prodName+(job.sn?' (S/N: '+job.sn+')':'')+'</div></td>' +
+      '<td style="text-align:center;">1</td>' +
+      '<td style="text-align:right;">'+fmt(d.svcFee)+'</td>' +
+      '<td style="text-align:right;">'+fmt(d.svcFee)+'</td>' +
+    '</tr>';
+    // เติมแถวว่างให้ดูเต็ม (รวม 6 แถว)
+    var filled = d.parts.length + 1;
+    for (var e=filled; e<6; e++) {
+      rows += '<tr><td style="text-align:center;color:#e2e8f0;">'+(e+1)+'</td><td></td><td></td><td></td><td></td></tr>';
+    }
+
+    var css = [
+      '*{box-sizing:border-box;margin:0;padding:0;}',
+      'body{font-family:"Sarabun",Tahoma,sans-serif;font-size:11px;color:#1e293b;-webkit-print-color-adjust:exact;print-color-adjust:exact;}',
+      '.wrap{width:100%;padding:0;display:flex;flex-direction:column;min-height:277mm;position:relative;}',
+      // corner accent
+      '.corner{position:absolute;top:0;right:0;width:0;height:0;border-style:solid;border-width:0 70px 70px 0;border-color:transparent #f59e0b transparent transparent;}',
+      // header
+      '.q-hdr{display:flex;justify-content:space-between;align-items:flex-start;padding:14mm 12mm 6mm;gap:20px;}',
+      '.q-logo{display:flex;align-items:center;gap:10px;}',
+      '.q-co-name{font-size:13px;font-weight:800;color:#0f172a;line-height:1.2;}',
+      '.q-co-info{font-size:8.5px;color:#475569;line-height:1.6;margin-top:4px;}',
+      '.q-title-box{text-align:right;}',
+      '.q-title{font-size:24px;font-weight:900;color:#334155;letter-spacing:.02em;line-height:1;}',
+      '.q-title-en{font-size:9px;color:#94a3b8;letter-spacing:.2em;text-transform:uppercase;margin-top:2px;}',
+      // meta table
+      '.q-meta{margin-top:14px;border-collapse:collapse;margin-left:auto;}',
+      '.q-meta td{padding:2px 0 2px 14px;font-size:9.5px;border:none;text-align:right;}',
+      '.q-meta .mk{color:#64748b;font-weight:600;}',
+      '.q-meta .mv{color:#0f172a;font-weight:700;font-family:monospace;}',
+      // customer box
+      '.q-cust{margin:0 12mm 10px;background:#f8fafc;border-left:3px solid #f59e0b;border-radius:0 5px 5px 0;padding:9px 14px;}',
+      '.q-cust-lbl{font-size:8px;color:#94a3b8;font-weight:700;letter-spacing:.05em;text-transform:uppercase;}',
+      '.q-cust-name{font-size:12px;font-weight:800;color:#0f172a;margin-top:2px;}',
+      '.q-cust-addr{font-size:9px;color:#64748b;line-height:1.5;margin-top:2px;}',
+      // table
+      '.q-body{padding:0 12mm;flex:1;}',
+      'table.items{width:100%;border-collapse:collapse;}',
+      'table.items thead th{background:linear-gradient(135deg,#334155,#475569);color:#fff;padding:7px 10px;font-size:9.5px;font-weight:700;text-align:left;}',
+      'table.items thead th:first-child{border-radius:4px 0 0 0;}',
+      'table.items thead th:last-child{border-radius:0 4px 0 0;}',
+      'table.items tbody td{padding:6px 10px;font-size:10px;border-bottom:1px solid #e2e8f0;vertical-align:top;line-height:1.4;}',
+      'table.items tbody tr:nth-child(even){background:#fafbfc;}',
+      // summary
+      '.q-sum{display:flex;justify-content:space-between;align-items:flex-start;margin-top:12px;gap:20px;}',
+      '.q-baht{flex:1;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:5px;padding:10px 14px;font-size:10px;}',
+      '.q-baht-lbl{font-size:8px;color:#94a3b8;font-weight:700;}',
+      '.q-baht-val{font-size:11px;font-weight:800;color:#0f172a;margin-top:3px;}',
+      '.q-totals{width:240px;flex-shrink:0;}',
+      '.q-totals .row{display:flex;justify-content:space-between;padding:4px 12px;font-size:10px;}',
+      '.q-totals .row.grand{background:linear-gradient(135deg,#334155,#475569);color:#fff;border-radius:5px;padding:8px 12px;font-weight:800;font-size:12px;margin-top:4px;}',
+      // notes
+      '.q-notes{margin:14px 12mm 0;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:5px;}',
+      '.q-notes-title{font-size:9px;font-weight:800;color:#92400e;margin-bottom:4px;}',
+      '.q-notes ul{margin:0;padding-left:16px;}',
+      '.q-notes li{font-size:9px;color:#78350f;line-height:1.7;}',
+      // signatures
+      '.q-sigs{display:grid;grid-template-columns:1fr 1fr;gap:50px;margin:28px 12mm 0;}',
+      '.q-sig{text-align:center;}',
+      '.q-sig-line{border-bottom:1px dotted #94a3b8;height:40px;margin-bottom:5px;}',
+      '.q-sig-lbl{font-size:9px;color:#475569;font-weight:700;}',
+      '.q-sig-sub{font-size:8px;color:#94a3b8;margin-top:2px;}',
+      '.q-sig-co{font-size:8.5px;color:#334155;font-weight:700;margin-bottom:6px;}',
+      // footer
+      '.q-foot{margin-top:auto;padding:8px 12mm;border-top:2px solid #f59e0b;text-align:center;font-size:8px;color:#94a3b8;}',
+      '.q-watermark{position:absolute;bottom:30mm;left:50%;transform:translateX(-50%);opacity:.04;font-size:90px;font-weight:900;color:#334155;pointer-events:none;white-space:nowrap;}',
+      '@media print{@page{size:A4 portrait;margin:0;}}'
+    ].join('');
+
+    return '<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8"><title>ใบเสนอราคา '+d.qNo+'</title>'+
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800;900&display=swap">'+
+      '<style>'+css+'</style></head><body>'+
+      '<div class="wrap">'+
+        '<div class="corner"></div>'+
+        '<div class="q-watermark">QUOTATION</div>'+
+        // Header
+        '<div class="q-hdr">'+
+          '<div>'+
+            '<div class="q-logo">'+
+              '<div>'+
+                '<div class="q-co-name">'+(co.name||'บริษัท เมดิคอลเอ็นจิเนียริ่งเซอร์วิส จำกัด')+'</div>'+
+                '<div class="q-co-info">'+(co.address||'')+'<br>โทร: '+(co.tel||'-')+' &nbsp;|&nbsp; เลขผู้เสียภาษี: '+(co.tax_id||'-')+'</div>'+
+              '</div>'+
+            '</div>'+
+          '</div>'+
+          '<div class="q-title-box">'+
+            '<div class="q-title">ใบเสนอราคา</div>'+
+            '<div class="q-title-en">Quotation</div>'+
+            '<table class="q-meta">'+
+              '<tr><td class="mk">เลขที่</td><td class="mv">'+d.qNo+'</td></tr>'+
+              '<tr><td class="mk">วันที่</td><td class="mv">'+d.qDate+'</td></tr>'+
+              '<tr><td class="mk">อ้างอิงงาน</td><td class="mv">'+d.jobId+'</td></tr>'+
+              '<tr><td class="mk">ยืนราคา</td><td class="mv">30 วัน</td></tr>'+
+            '</table>'+
+          '</div>'+
+        '</div>'+
+        // Customer
+        '<div class="q-cust">'+
+          '<div class="q-cust-lbl">เรียน / ลูกค้า</div>'+
+          '<div class="q-cust-name">'+d.custName+'</div>'+
+          '<div class="q-cust-addr">'+(cust.address||'')+' '+(cust.province||'')+(cust.tel?' &nbsp;·&nbsp; โทร '+cust.tel:'')+'</div>'+
+        '</div>'+
+        // Items
+        '<div class="q-body">'+
+          '<table class="items"><thead><tr>'+
+            '<th style="width:36px;text-align:center;">#</th>'+
+            '<th>รายละเอียด</th>'+
+            '<th style="width:55px;text-align:center;">จำนวน</th>'+
+            '<th style="width:90px;text-align:right;">ราคา/หน่วย</th>'+
+            '<th style="width:100px;text-align:right;">จำนวนเงิน</th>'+
+          '</tr></thead><tbody>'+rows+'</tbody></table>'+
+          // Summary
+          '<div class="q-sum">'+
+            '<div class="q-baht">'+
+              '<div class="q-baht-lbl">จำนวนเงินรวมทั้งสิ้น (ตัวอักษร)</div>'+
+              '<div class="q-baht-val">( '+bahtText(d.grand)+' )</div>'+
+            '</div>'+
+            '<div class="q-totals">'+
+              (d.discount > 0 ? '<div class="row"><span>รวมก่อนหักส่วนลด</span><span>'+fmt(d.partsSum + d.svcFee)+'</span></div>' : '')+
+              (d.discount > 0 ? '<div class="row" style="color:#dc2626;"><span>หักส่วนลด</span><span>-'+fmt(d.discount)+'</span></div>' : '')+
+              '<div class="row"><span>รวมเป็นเงิน</span><span>'+fmt(d.sub)+'</span></div>'+
+              '<div class="row"><span>ภาษีมูลค่าเพิ่ม 7%</span><span>'+fmt(d.vat)+'</span></div>'+
+              '<div class="row grand"><span>ยอดชำระสุทธิ</span><span>฿'+fmt(d.grand)+'</span></div>'+
+            '</div>'+
+          '</div>'+
+        '</div>'+
+        // Notes
+        '<div class="q-notes">'+
+          '<div class="q-notes-title">📋 หมายเหตุ / เงื่อนไข</div>'+
+          '<ul>'+
+            '<li>ราคานี้ยืนยัน 30 วันนับจากวันที่เสนอราคา · รับประกันงานซ่อม 120 วัน</li>'+
+            '<li>ราคารวมภาษีมูลค่าเพิ่ม 7% แล้ว · เงื่อนไขชำระเงิน: เงินสด หรือเครดิตตามตกลง</li>'+
+            '<li>กรุณาออก PO อ้างอิงเลขที่ใบเสนอราคา '+d.qNo+' เพื่อยืนยันการสั่งจ้าง</li>'+
+          '</ul>'+
+        '</div>'+
+        // Signatures
+        '<div class="q-sigs">'+
+          '<div class="q-sig">'+
+            '<div class="q-sig-co">ในนาม '+(cust.name||'ลูกค้า')+'</div>'+
+            '<div class="q-sig-line"></div>'+
+            '<div class="q-sig-lbl">ผู้สั่งซื้อ / อนุมัติ</div>'+
+            '<div class="q-sig-sub">วันที่ ......./......./.......</div>'+
+          '</div>'+
+          '<div class="q-sig">'+
+            '<div class="q-sig-co">ในนาม '+(co.name||'บริษัทฯ')+'</div>'+
+            '<div class="q-sig-line"></div>'+
+            '<div class="q-sig-lbl">ผู้เสนอราคา</div>'+
+            '<div class="q-sig-sub">วันที่ '+d.qDate+'</div>'+
+          '</div>'+
+        '</div>'+
+        // Footer
+        '<div class="q-foot">เอกสารนี้จัดทำโดยระบบบริหารงานบริการหลังการขาย · '+(co.name||'')+' · พิมพ์เมื่อ '+nowTs()+'</div>'+
+      '</div>'+
+      scriptOpen+'setTimeout(function(){window.print();},400);'+scriptClose+
+      '</body></html>';
+  }
 
   window.quickPrintRequisition = function(jobId) {
     var job = DB.find('repair_jobs','id',jobId); if (!job) return;
@@ -1125,48 +1610,90 @@
     var prodName  = prod.name  || job.product_name  || '-';
     var prodBrand = prod.brand || job.product_brand || '-';
     var custName  = cust.name  || job.customer_name  || '-';
+    var dp    = job.sn ? DB.find('delivered_products','sn',job.sn) : null;
+    var dept  = (dp && dp.department) ? dp.department : (job.department || '-');
     var co    = getCompanyInfo();
     var parts = DB.getAll('parts');
     var isFree = job.quotation && job.quotation.is_free;
-    var isClaim = job.quotation && job.quotation.is_claim;
-    var docTitle = isFree ? 'ใบเบิกอะไหล่ (เคลมประกัน)' : 'ใบเบิกอะไหล่';
+    var isClaim = (job.warranty_condition === 'in_warranty') && !((job.timestamps||{})['claim_rejected']);
+    var docTitle = 'ใบเบิกอะไหล่';
 
-    var rowsHtml = (job.parts_needed||[]).map(function(item,i){
+    var grandTotal = 0;
+    var partsRows = (job.parts_needed||[]);
+    var rowsHtml = partsRows.map(function(item,i){
       var p = parts.find(function(x){ return x.id===item.part_id; })||{};
-      var priceDisplay = isFree ? '<span style="color:#059669;font-weight:800;">ฟรี (ประกัน)</span>' : ('฿' + (p.price||0).toLocaleString());
-      var totalDisplay = isFree ? '<span style="color:#059669;font-weight:800;">฿0</span>' : ('฿' + (item.qty*(p.price||0)).toLocaleString());
-      return '<tr><td style="text-align:center;">'+(i+1)+'</td><td>'+(p.code||item.part_id)+'</td><td>'+(p.name||'-')+'</td><td style="text-align:center;">'+item.qty+'</td><td style="text-align:right;">'+priceDisplay+'</td><td style="text-align:right;">'+totalDisplay+'</td><td></td></tr>';
+      var unitPrice = p.price || 0;
+      var lineTotal = item.qty * unitPrice;
+      if (!isClaim) grandTotal += lineTotal;
+      var priceDisplay = isClaim ? '<span style="color:#059669;font-weight:700;">เคลม</span>' : ('฿' + unitPrice.toLocaleString());
+      var totalDisplay = isClaim ? '<span style="color:#059669;font-weight:700;">฿0</span>' : ('฿' + lineTotal.toLocaleString());
+      return '<tr>' +
+        '<td style="text-align:center;">'+(i+1)+'</td>' +
+        '<td style="font-family:monospace;">'+(p.code||item.part_id)+'</td>' +
+        '<td>'+(p.name||'-')+'</td>' +
+        '<td style="text-align:center;">'+item.qty+'</td>' +
+        '<td style="text-align:right;">'+priceDisplay+'</td>' +
+        '<td style="text-align:right;font-weight:600;">'+totalDisplay+'</td>' +
+      '</tr>';
     }).join('');
 
-    var claimBanner = (isClaim || isFree) ? (
-      '<div style="background:' + (isFree ? 'rgba(16,185,129,.08)' : 'rgba(99,102,241,.06)') + ';border:2px solid ' + (isFree ? '#10b981' : '#6366f1') + ';border-radius:6px;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px;">' +
-        '<span style="font-size:1.5rem;">' + (isFree ? '🛡️' : '📋') + '</span>' +
-        '<div>' +
-          '<div style="font-weight:800;font-size:13px;color:' + (isFree ? '#065f46' : '#3730a3') + ';">' + (isFree ? 'เคลมสินค้าฟรี — อยู่ในเงื่อนไขประกัน' : 'สินค้าในประกัน — มีค่าบริการ') + '</div>' +
-          '<div style="font-size:11px;color:#64748b;margin-top:2px;">ค่าอะไหล่: ฟรี ตามเงื่อนไขการรับประกันสินค้า</div>' +
-        '</div>' +
-      '</div>'
-    ) : '';
+    // เติมแถวว่างให้ครบ 4 แถว (พอดีกับ 2 ชุดต่อหน้า)
+    var emptyRows = Math.max(0, 4 - partsRows.length);
+    for (var e=0; e<emptyRows; e++) {
+      rowsHtml += '<tr><td style="text-align:center;color:#cbd5e1;">'+(partsRows.length+e+1)+'</td><td></td><td></td><td></td><td></td><td></td></tr>';
+    }
+
+    var warrantyTag = isClaim
+      ? '<span style="display:inline-block;background:#d1fae5;color:#065f46;font-weight:700;font-size:11px;padding:3px 10px;border-radius:12px;">🛡️ เคลมประกัน — ไม่มีค่าอะไหล่</span>'
+      : '<span style="display:inline-block;background:#fef3c7;color:#92400e;font-weight:700;font-size:11px;padding:3px 10px;border-radius:12px;">นอกประกัน — มีค่าอะไหล่</span>';
+
+    var totalSummary = isClaim
+      ? '<div style="text-align:right;margin-top:8px;"><span style="display:inline-block;background:#d1fae5;color:#065f46;font-weight:800;font-size:13px;padding:6px 16px;border-radius:6px;">รวมค่าอะไหล่: ฿0 (เคลมประกัน)</span></div>'
+      : '<div style="display:flex;justify-content:flex-end;margin-top:8px;"><table style="width:auto;border:none;"><tr><td style="border:none;padding:4px 16px;text-align:right;font-weight:600;color:#475569;">ยอดรวมค่าอะไหล่ทั้งสิ้น</td><td style="border:1px solid #cbd5e1;padding:6px 20px;text-align:right;font-weight:800;font-size:14px;color:#4f46e5;background:#f8fafc;">฿'+grandTotal.toLocaleString()+'</td></tr></table></div>';
 
     var bodyContent =
-      claimBanner +
-      '<div class="g2" style="margin-bottom:14px;">'+
-        '<div><div class="lbl">เลขที่งานซ่อม</div><div class="val" style="font-family:monospace;font-size:16px;color:#4f46e5;">'+jobId+'</div></div>'+
-        '<div><div class="lbl">วันที่เบิก</div><div class="val">'+new Date().toLocaleDateString('th-TH')+'</div></div>'+
-        '<div><div class="lbl">สินค้า</div><div class="val">'+(prod.name||'-')+' ('+(prod.brand||'-')+')</div></div>'+
-        '<div><div class="lbl">S/N</div><div class="val" style="font-family:monospace;color:#4f46e5;">'+(job.sn||'-')+'</div></div>'+
-        '<div><div class="lbl">ลูกค้า</div><div class="val">'+(cust.name||'-')+'</div></div>'+
-        '<div><div class="lbl">เลขที่ PO / เคลม</div><div class="val" style="font-family:monospace;">'+(job.po?job.po.number:(job.quotation?job.quotation.number:'-'))+'</div></div>'+
-      '</div>'+
-      '<table><thead><tr><th>ลำดับ</th><th>รหัส</th><th>ชื่ออะไหล่</th><th style="text-align:center;">จำนวน</th><th style="text-align:right;">ราคา/ชิ้น</th><th style="text-align:right;">ยอดรวม</th><th>หมายเหตุ</th></tr></thead>'+
-      '<tbody>'+(rowsHtml||'<tr><td colspan="7" style="text-align:center;color:#94a3b8;">ไม่มีรายการอะไหล่</td></tr>')+'</tbody></table>'+
-      (isFree ? '<div style="text-align:right;font-size:13px;font-weight:800;color:#059669;margin-bottom:16px;">✓ ไม่มีค่าอะไหล่ — เคลมประกันสินค้า</div>' : '') +
-      '<div class="sigs">'+
-        '<div><div class="sig-line"></div><div class="sig-lbl">ผู้ขอเบิก / วิศวกร</div></div>'+
-        '<div><div class="sig-line"></div><div class="sig-lbl">ผู้อนุมัติ / หัวหน้า</div></div>'+
-        '<div><div class="sig-line"></div><div class="sig-lbl">ผู้จ่ายอะไหล่ / คลัง</div></div>'+
+      // ส่วนหัวข้อมูลงาน — กล่อง 2 คอลัมน์
+      '<div style="display:grid;grid-template-columns:1fr 1fr;border:1px solid #cbd5e1;border-radius:5px;overflow:hidden;margin-bottom:6px;font-size:9px;">' +
+        '<div style="padding:6px 11px;border-right:1px solid #cbd5e1;border-bottom:1px solid #e2e8f0;">' +
+          '<div class="lbl">เลขที่งานซ่อม</div><div class="val" style="font-family:monospace;font-size:15px;color:#4f46e5;font-weight:700;">'+jobId+'</div>' +
+        '</div>' +
+        '<div style="padding:6px 11px;border-bottom:1px solid #e2e8f0;">' +
+          '<div class="lbl">วันที่เบิก</div><div class="val">'+new Date().toLocaleDateString('th-TH',{year:'numeric',month:'long',day:'numeric'})+'</div>' +
+        '</div>' +
+        '<div style="padding:6px 11px;border-right:1px solid #cbd5e1;border-bottom:1px solid #e2e8f0;">' +
+          '<div class="lbl">เครื่องมือ / ยี่ห้อ</div><div class="val">'+prodName+' <span style="color:#64748b;">('+prodBrand+')</span></div>' +
+        '</div>' +
+        '<div style="padding:6px 11px;border-bottom:1px solid #e2e8f0;">' +
+          '<div class="lbl">S/N</div><div class="val" style="font-family:monospace;color:#4f46e5;">'+(job.sn||'-')+'</div>' +
+        '</div>' +
+        '<div style="padding:10px 14px;border-right:1px solid #cbd5e1;">' +
+          '<div class="lbl">ลูกค้า / แผนก</div><div class="val">'+custName+' <span style="color:#64748b;">'+(dept!=='-'?'· '+dept:'')+'</span></div>' +
+        '</div>' +
+        '<div style="padding:6px 11px;">' +
+          '<div class="lbl">เลขที่ PO / เคลม</div><div class="val" style="font-family:monospace;">'+(job.po?job.po.number:(job.quotation?job.quotation.number:'-'))+'</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="margin-bottom:14px;">'+warrantyTag+'</div>' +
+
+      // ตารางอะไหล่
+      '<table><thead><tr>' +
+        '<th style="width:42px;text-align:center;">ลำดับ</th>' +
+        '<th style="width:110px;">รหัส</th>' +
+        '<th>ชื่ออะไหล่</th>' +
+        '<th style="width:60px;text-align:center;">จำนวน</th>' +
+        '<th style="width:90px;text-align:right;">ราคา/ชิ้น</th>' +
+        '<th style="width:100px;text-align:right;">ยอดรวม</th>' +
+      '</tr></thead>' +
+      '<tbody>'+rowsHtml+'</tbody></table>' +
+      totalSummary +
+
+      // ลายเซ็น 3 ฝ่าย แถวเดียว (กระชับสำหรับ 2 ชุด)
+      '<div class="sigs">' +
+        '<div><div class="sig-line"></div><div class="sig-lbl">ผู้ขอเบิก / วิศวกร</div></div>' +
+        '<div><div class="sig-line"></div><div class="sig-lbl">ผู้อนุมัติ / หัวหน้า</div></div>' +
+        '<div><div class="sig-line"></div><div class="sig-lbl">ผู้จ่ายอะไหล่ / คลัง</div></div>' +
       '</div>';
-    openDocWindow(buildDocHTML(docTitle, bodyContent, jobId, co));
+    openDocWindow(buildDuplicateDocHTML(docTitle, bodyContent, jobId, co));
   };
 
   // ---- รายงานการซ่อมและใบส่งคืน (รวมเป็นเอกสารเดียว) ----
@@ -1336,6 +1863,11 @@
       '.sig-date{border-bottom:1px dashed #94a3b8;height:20px;margin-top:7px;}',
       '.sig-lbl{font-size:9px;color:#374151;font-weight:600;line-height:1.3;}',
       '.sig-note{font-size:7.5px;color:#94a3b8;margin-top:2px;}',
+      '.sigs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;text-align:center;margin-top:20px;}',
+      '.sigs .sig-line{border-bottom:1px solid #334155;height:34px;margin-bottom:4px;}',
+      '.sigs .sig-lbl{font-size:9.5px;color:#374151;font-weight:700;line-height:1.3;}',
+      '.copy-divider{border:none;border-top:1px dashed #94a3b8;margin:10px 0;position:relative;text-align:center;}',
+      '.copy-tag{font-size:8px;color:#94a3b8;font-weight:700;letter-spacing:.05em;}',
 
       '.result-box{background:#f0fdf4;border:1px solid #86efac;border-radius:3px;padding:6px 10px;font-size:11.5px;line-height:1.7;min-height:38px;}',
       '.symptom-box{border:1px solid #fed7aa;border-radius:3px;padding:6px 10px;font-size:11.5px;line-height:1.7;min-height:38px;background:#fffbf5;}',
@@ -1390,6 +1922,86 @@
     var win = window.open('','_blank','width=840,height=960,scrollbars=yes');
     if (!win) { showToast('warning','Popup ถูกบล็อก','กรุณาอนุญาต Popup แล้วลองใหม่'); return; }
     win.document.open(); win.document.write(html); win.document.close();
+  }
+
+  // เอกสาร 2 ชุดต่อหน้า A4 (ต้นฉบับ + สำเนา) สำหรับเก็บทั้ง 2 ฝ่าย
+  function buildDuplicateDocHTML(title, bodyContent, jobId, co) {
+    var scriptOpen  = '<scr' + 'ipt>';
+    var scriptClose = '</scr' + 'ipt>';
+    var jsSrc = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js';
+    var css = [
+      '*{box-sizing:border-box;margin:0;padding:0}',
+      'body{font-family:"Sarabun",Tahoma,Arial,sans-serif;font-size:10px;color:#1e293b;-webkit-print-color-adjust:exact;print-color-adjust:exact;}',
+      '.page{width:100%;padding:6mm 9mm;height:148mm;overflow:hidden;display:flex;flex-direction:column;}',
+      '.cut-line{border:none;border-top:1.5px dashed #94a3b8;margin:0;position:relative;}',
+      '.cut-label{position:absolute;right:9mm;top:-7px;background:#fff;font-size:8px;color:#94a3b8;padding:0 6px;font-weight:700;}',
+      '.copy-badge{display:inline-block;font-size:8.5px;font-weight:800;padding:2px 10px;border-radius:10px;margin-left:8px;vertical-align:middle;}',
+
+      '.hdr{border:1.2px solid #334155;border-radius:3px;padding:6px 11px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;background:#fff;}',
+      '.hdr-co h1{font-size:10.5px;font-weight:800;color:#0f172a;margin-bottom:1px;}',
+      '.hdr-co p{font-size:8px;color:#475569;line-height:1.4;margin:0;}',
+      '.hdr-right{text-align:right;flex-shrink:0;}',
+      '.doc-title{font-size:13px;font-weight:900;color:#334155;line-height:1;}',
+      '.doc-no{font-size:10px;font-weight:800;color:#4f46e5;margin-top:2px;font-family:monospace;}',
+
+      '.lbl{font-size:8px;color:#64748b;font-weight:700;margin-bottom:1px;}',
+      '.val{font-size:10px;font-weight:600;color:#0f172a;line-height:1.25;}',
+      'table{width:100%;border-collapse:collapse;margin-bottom:4px;}',
+      'th{background:#f1f5f9;padding:3px 7px;font-size:8.5px;font-weight:700;text-align:left;border:1px solid #d1d5db;}',
+      'td{padding:3px 7px;border:1px solid #e2e8f0;font-size:9.5px;vertical-align:top;line-height:1.3;}',
+      '.sigs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;text-align:center;margin-top:12px;}',
+      '.sigs .sig-line{border-bottom:1px solid #334155;height:26px;margin-bottom:3px;}',
+      '.sigs .sig-lbl{font-size:8.5px;color:#374151;font-weight:700;line-height:1.2;}',
+      '.foot{border-top:1px solid #d1d5db;margin-top:auto;padding-top:3px;text-align:center;font-size:7.5px;color:#64748b;}',
+      '.bc-mini{text-align:center;margin-top:4px;}',
+      '.bc-mini svg{max-width:180px;width:100%;}',
+
+      '@media print{',
+      '  body,html{margin:0;padding:0;}',
+      '  @page{size:A4 portrait;margin:0;}',
+      '}'
+    ].join('');
+
+    // สร้าง 1 ชุด (ใช้ซ้ำ 2 ครั้ง)
+    function oneCopy(copyLabel, badgeColor, badgeBg, bcId) {
+      return '<div class="page">' +
+        '<div class="hdr">' +
+          '<div class="hdr-co">' +
+            '<h1>'+(co.name||'บริษัท เมดิคอลเอ็นจิเนียริ่งเซอร์วิส จำกัด')+'</h1>' +
+            '<p>'+(co.address||'')+'</p>' +
+            '<p>โทร: '+(co.tel||'-')+' | เลขผู้เสียภาษี: '+(co.tax_id||'-')+'</p>' +
+          '</div>' +
+          '<div class="hdr-right">' +
+            '<div class="doc-title">'+title+'<span class="copy-badge" style="color:'+badgeColor+';background:'+badgeBg+';">'+copyLabel+'</span></div>' +
+            '<div class="doc-no">'+jobId+'</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;flex:1;">'+bodyContent+'</div>' +
+        '<div class="bc-mini"><svg id="'+bcId+'"></svg></div>' +
+        '<div class="foot">เอกสารนี้จัดทำขึ้น 2 ฉบับ มีข้อความตรงกัน — '+copyLabel+' · พิมพ์เมื่อ '+nowTs()+'</div>' +
+      '</div>';
+    }
+
+    return '<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">'+
+      '<title>'+title+' '+jobId+'</title>'+
+      '<link rel="preconnect" href="https://fonts.googleapis.com">'+
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap">'+
+      '<style>'+css+'</style>'+
+      '</head><body>'+
+        oneCopy('ต้นฉบับ (คลัง)', '#1e40af', '#dbeafe', 'doc-bc-1')+
+        '<hr class="cut-line"><div style="position:relative;height:0;"><span class="cut-label">✂ ตัดตามรอยประ</span></div>'+
+        oneCopy('สำเนา (ผู้เบิก)', '#92400e', '#fef3c7', 'doc-bc-2')+
+      '<scr'+'ipt src="'+jsSrc+'"><'+'/script>'+
+      scriptOpen+
+        'document.fonts.ready.then(function(){'+
+          'try{'+
+            'JsBarcode("#doc-bc-1","'+jobId+'",{format:"CODE128",width:1.6,height:30,displayValue:true,fontSize:9,margin:2,lineColor:"#334155",background:"#fff"});'+
+            'JsBarcode("#doc-bc-2","'+jobId+'",{format:"CODE128",width:1.6,height:30,displayValue:true,fontSize:9,margin:2,lineColor:"#334155",background:"#fff"});'+
+          '}catch(e){}'+
+          'setTimeout(function(){window.print();},500);'+
+        '});'+
+      scriptClose+
+      '</body></html>';
   }
 
   window.printRepairReceipt = function(jobId) {
@@ -1800,6 +2412,59 @@
   };
 
   // ==================== ONSITE TABLE ====================
+  // ── Onsite table sort/group + export ──
+  var _onsiteSort = { key: 'created_at', dir: 'desc' };
+  window.sortOnsiteTable = function(key) {
+    if (_onsiteSort.key === key) { _onsiteSort.dir = _onsiteSort.dir === 'asc' ? 'desc' : 'asc'; }
+    else { _onsiteSort.key = key; _onsiteSort.dir = 'asc'; }
+    renderOnsiteTable();
+  };
+  function updateOnsiteSortIndicators() {
+    document.querySelectorAll('#table-onsite th[data-sort]').forEach(function(th) {
+      var key = th.getAttribute('data-sort');
+      var arrow = th.querySelector('.sort-arrow');
+      if (!arrow) { arrow = document.createElement('span'); arrow.className='sort-arrow'; arrow.style.cssText='margin-left:4px;font-size:.7rem;'; th.appendChild(arrow); }
+      if (_onsiteSort.key === key) { arrow.textContent = _onsiteSort.dir==='asc'?'▲':'▼'; arrow.style.opacity='1'; arrow.style.color='var(--primary)'; }
+      else { arrow.textContent='⇅'; arrow.style.opacity='.35'; arrow.style.color='inherit'; }
+    });
+  }
+  window.exportOnsiteExcel = function() {
+    var currentUser = DB.getCurrentUser();
+    var isEngineer = currentUser.role==='engineer';
+    var products = DB.getAll('products'); var customers = DB.getAll('customers'); var users = DB.getAll('users');
+    var jobs = DB.getAll('onsite_jobs');
+    if (isEngineer) jobs = jobs.filter(function(j){ return j.created_by===currentUser.id||j.assigned_to===currentUser.id; });
+    var head = '<tr><th>เลขที่งาน</th><th>S/N</th><th>สินค้า</th><th>ลูกค้า</th><th>จังหวัด</th><th>ผู้รับผิดชอบ</th><th>ประเภท</th><th>สถานะ</th></tr>';
+    var rows = jobs.map(function(job) {
+      var prod = products.find(function(p){ return p.id===job.product_id; });
+      var cust = customers.find(function(c){ return c.id===job.customer_id; });
+      var eng  = users.find(function(u){ return u.id===job.assigned_to; });
+      return '<tr><td>' + job.id + '</td><td>' + (job.sn||'-') + '</td><td>' + (prod?prod.name:'-') + '</td><td>' + (cust?cust.name:'-') + '</td><td>' + (cust?cust.province:'-') + '</td><td>' + (eng?eng.fullname:'-') + '</td><td>' + (job.type||'-') + '</td><td>' + (job.status==='closed'?'ปิดงาน':'จ่ายงาน') + '</td></tr>';
+    }).join('');
+    var html = '<html><head><meta charset="UTF-8"></head><body><table border="1">' + head + rows + '</table></body></html>';
+    var blob = new Blob(['\ufeff'+html], {type:'application/vnd.ms-excel'});
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'รายการงาน_Onsite_' + new Date().toISOString().substring(0,10) + '.xls'; a.click();
+    showToast('success','Export Excel สำเร็จ','');
+  };
+  window.exportOnsitePDF = function() {
+    var currentUser = DB.getCurrentUser();
+    var isEngineer = currentUser.role==='engineer';
+    var co = getCompanyInfo();
+    var products = DB.getAll('products'); var customers = DB.getAll('customers'); var users = DB.getAll('users');
+    var jobs = DB.getAll('onsite_jobs');
+    if (isEngineer) jobs = jobs.filter(function(j){ return j.created_by===currentUser.id||j.assigned_to===currentUser.id; });
+    var rows = jobs.map(function(job, i) {
+      var prod = products.find(function(p){ return p.id===job.product_id; });
+      var cust = customers.find(function(c){ return c.id===job.customer_id; });
+      var eng  = users.find(function(u){ return u.id===job.assigned_to; });
+      return '<tr><td style="text-align:center;">' + (i+1) + '</td><td style="font-family:monospace;">' + job.id + '</td><td style="font-family:monospace;">' + (job.sn||'-') + '</td><td>' + (prod?prod.name:'-') + '</td><td>' + (cust?cust.name:'-') + '<br><span style="font-size:10px;color:#888;">' + (cust?cust.province:'') + '</span></td><td>' + (eng?eng.fullname.replace('วิศวกร ',''):'-') + '</td><td>' + (job.type||'-') + '</td><td>' + (job.status==='closed'?'ปิดงาน':'จ่ายงาน') + '</td></tr>';
+    }).join('');
+    var win = window.open('','_blank');
+    win.document.write('<html><head><meta charset="UTF-8"><title>รายการงาน Onsite</title><style>@import url("https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap");body{font-family:Sarabun,sans-serif;padding:20px;font-size:12px;}h2{text-align:center;margin:4px 0;}.sub{text-align:center;color:#666;font-size:12px;margin-bottom:14px;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;font-size:11px;}th{background:#f1f5f9;font-weight:700;}@page{size:A4 landscape;margin:12mm;}</style></head><body><h2>' + co.name + '</h2><div class="sub">รายการงาน Onsite / Oncall — ' + nowTs() + ' (ทั้งหมด ' + jobs.length + ' รายการ)</div><table><thead><tr><th style="width:36px;">#</th><th>เลขที่งาน</th><th>S/N</th><th>สินค้า</th><th>ลูกค้า/จังหวัด</th><th>ผู้รับผิดชอบ</th><th>ประเภท</th><th>สถานะ</th></tr></thead><tbody>' + rows + '</tbody></table><scr'+'ipt>window.onload=function(){setTimeout(function(){window.print();},400);}</scr'+'ipt></body></html>');
+    win.document.close();
+  };
+
   function renderOnsiteTable(list) {
     var currentUser = DB.getCurrentUser();
     var isPrivileged = ['manager','supervisor'].includes(currentUser.role);
@@ -1809,10 +2474,60 @@
       allJobs = allJobs.filter(function(j){ return j.assigned_to===currentUser.id||j.created_by===currentUser.id; });
     } else if (list) { allJobs = list; }
     var products = DB.getAll('products'); var customers = DB.getAll('customers'); var users = DB.getAll('users');
+
+    // Sort
+    function sortVal(job, key) {
+      var prod = products.find(function(p){ return p.id===job.product_id; });
+      var cust = customers.find(function(c){ return c.id===job.customer_id; });
+      switch(key) {
+        case 'id': return job.id||'';
+        case 'sn': return job.sn||'';
+        case 'product': return prod?prod.name:'';
+        case 'customer': return cust?cust.name:'';
+        case 'owner': var e = users.find(function(u){ return u.id===job.assigned_to; }); return e?e.fullname:'';
+        case 'type': return job.type||'';
+        case 'status': return job.status||'';
+        case 'created_at': return job.created_at||'';
+        default: return '';
+      }
+    }
+    allJobs = allJobs.slice().sort(function(a,b) {
+      var va = sortVal(a, _onsiteSort.key), vb = sortVal(b, _onsiteSort.key);
+      var cmp = (typeof va==='number')?(va-vb):String(va).localeCompare(String(vb),'th');
+      return _onsiteSort.dir==='asc'?cmp:-cmp;
+    });
+
     var body = document.getElementById('body-onsite'); if (!body) return;
+    updateOnsiteSortIndicators();
     body.innerHTML = '';
     if (allJobs.length === 0) { body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:30px;">ไม่มีรายการ</td></tr>'; lucide.createIcons(); return; }
+
+    // Group mode (customer/owner/status)
+    var groupKeys = ['customer','owner','status'];
+    var isGroupMode = groupKeys.includes(_onsiteSort.key);
+    var lastGroupVal = null;
+
     allJobs.forEach(function(job) {
+      if (isGroupMode) {
+        var groupVal;
+        if (_onsiteSort.key === 'customer') {
+          var c0 = customers.find(function(c){ return c.id===job.customer_id; });
+          groupVal = c0?c0.name:'(ไม่ระบุ)';
+        } else if (_onsiteSort.key === 'owner') {
+          var u0 = users.find(function(u){ return u.id===job.assigned_to; });
+          groupVal = u0?u0.fullname:'(ยังไม่มอบหมาย)';
+        } else {
+          groupVal = job.status==='closed'?'ปิดงาน':'จ่ายงาน';
+        }
+        if (groupVal !== lastGroupVal) {
+          var grTr = document.createElement('tr');
+          grTr.style.cssText = 'background:linear-gradient(90deg,rgba(99,102,241,.08),rgba(99,102,241,.02));';
+          grTr.innerHTML = '<td colspan="8" style="padding:8px 14px;font-weight:800;color:var(--primary);font-size:.85rem;"><i data-lucide="folder" style="width:14px;height:14px;display:inline;vertical-align:middle;margin-right:6px;"></i>' + groupVal + '</td>';
+          body.appendChild(grTr);
+          lastGroupVal = groupVal;
+        }
+      }
+
       var prod = products.find(function(p){ return p.id === job.product_id; });
       var cust = customers.find(function(c){ return c.id === job.customer_id; });
       var eng  = users.find(function(u){ return u.id === job.assigned_to; });
@@ -1821,7 +2536,7 @@
       var canDelete = (isOwner&&job.status==='assigned')||isPrivileged;
       var typeBadge = job.type==='oncall'?'<span class="badge badge-oncall">Oncall</span>':job.type==='onsite'?'<span class="badge badge-onsite">Onsite</span>':'<span class="badge badge-registered">ยังไม่ระบุ</span>';
       var editBtn = canEdit ? '<button class="btn btn-secondary btn-sm" onclick="openOnsiteProgressModal(\'' + job.id + '\')"><i data-lucide="edit-3"></i>บันทึก</button>' : '<span style="font-size:.72rem;color:var(--text-muted);padding:4px;">ไม่มีสิทธิ์</span>';
-      var reassignBtn = isPrivileged ? '<button class="btn btn-warning btn-sm btn-icon-only" onclick="openReassignModal(\'' + job.id + '\',\'onsite_jobs\')" title="โอนงาน"><i data-lucide="user-check"></i></button>' : '';
+      var reassignBtn = (isPrivileged && job.status !== 'closed') ? '<button class="btn btn-warning btn-sm btn-icon-only" onclick="openReassignModal(\'' + job.id + '\',\'onsite_jobs\')" title="โอนงาน"><i data-lucide="user-check"></i></button>' : '';
       var deleteBtn = canDelete ? '<button class="btn btn-danger btn-sm btn-icon-only" onclick="deleteJob(\'onsite_jobs\',\'' + job.id + '\')"><i data-lucide="trash-2"></i></button>' : '';
       var tr = document.createElement('tr');
       tr.innerHTML = '<td class="job-item-id">' + job.id + '</td><td><strong style="color:var(--primary);">' + (job.sn||'-') + '</strong></td>' +
@@ -1893,14 +2608,77 @@
   };
 
   // ==================== DELIVERED ====================
+  // ── Delivered table sort ──
+  var _deliveredSort = { key: 'delivery_date', dir: 'desc' };
+  window.sortDeliveredTable = function(key) {
+    if (_deliveredSort.key === key) { _deliveredSort.dir = _deliveredSort.dir==='asc'?'desc':'asc'; }
+    else { _deliveredSort.key = key; _deliveredSort.dir = 'asc'; }
+    renderDeliveredTable();
+  };
+  function updateDeliveredSortIndicators() {
+    document.querySelectorAll('#table-delivered th[data-sort]').forEach(function(th) {
+      var key = th.getAttribute('data-sort');
+      var arrow = th.querySelector('.sort-arrow');
+      if (!arrow) { arrow = document.createElement('span'); arrow.className='sort-arrow'; arrow.style.cssText='margin-left:4px;font-size:.7rem;'; th.appendChild(arrow); }
+      if (_deliveredSort.key === key) { arrow.textContent = _deliveredSort.dir==='asc'?'▲':'▼'; arrow.style.opacity='1'; arrow.style.color='var(--primary)'; }
+      else { arrow.textContent='⇅'; arrow.style.opacity='.35'; arrow.style.color='inherit'; }
+    });
+  }
+
   function renderDeliveredTable(list) {
     list = list || DB.getAll('delivered_products');
     var products = DB.getAll('products'); var customers = DB.getAll('customers'); var currentUser = DB.getCurrentUser();
+
+    // Sort
+    function sortVal(item, key) {
+      var prod = products.find(function(p){ return p.id === item.product_id; });
+      var cust = customers.find(function(c){ return c.id === item.customer_id; });
+      switch(key) {
+        case 'sn': return item.sn||'';
+        case 'product': return prod?prod.name:'';
+        case 'customer': return cust?cust.name:'';
+        case 'delivery_date': return item.delivery_date||'';
+        case 'warranty_years': return item.warranty_years||0;
+        case 'warranty_expiry': return item.warranty_expiry||'';
+        case 'pm_interval': return item.pm_interval_months||0;
+        default: return '';
+      }
+    }
+    list = list.slice().sort(function(a,b) {
+      var va = sortVal(a, _deliveredSort.key), vb = sortVal(b, _deliveredSort.key);
+      var cmp = (typeof va==='number')?(va-vb):String(va).localeCompare(String(vb),'th');
+      return _deliveredSort.dir==='asc'?cmp:-cmp;
+    });
+
     var body = document.getElementById('body-delivered'); if (!body) return;
+    updateDeliveredSortIndicators();
     body.innerHTML = '';
     if (list.length === 0) { body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:30px;">ไม่มีข้อมูล</td></tr>'; lucide.createIcons(); return; }
+
+    // Group mode (customer/product)
+    var groupKeys = ['customer','product'];
+    var isGroupMode = groupKeys.includes(_deliveredSort.key);
+    var lastGroupVal = null;
     var today = new Date();
+
     list.forEach(function(item) {
+      if (isGroupMode) {
+        var groupVal;
+        if (_deliveredSort.key === 'customer') {
+          var c0 = customers.find(function(c){ return c.id===item.customer_id; });
+          groupVal = c0?c0.name:'(ไม่ระบุ)';
+        } else {
+          var p0 = products.find(function(p){ return p.id===item.product_id; });
+          groupVal = p0?p0.name:'(ไม่ระบุ)';
+        }
+        if (groupVal !== lastGroupVal) {
+          var grTr = document.createElement('tr');
+          grTr.style.cssText = 'background:linear-gradient(90deg,rgba(99,102,241,.08),rgba(99,102,241,.02));';
+          grTr.innerHTML = '<td colspan="9" style="padding:8px 14px;font-weight:800;color:var(--primary);font-size:.85rem;"><i data-lucide="folder" style="width:14px;height:14px;display:inline;vertical-align:middle;margin-right:6px;"></i>' + groupVal + '</td>';
+          body.appendChild(grTr);
+          lastGroupVal = groupVal;
+        }
+      }
       var prod = products.find(function(p){ return p.id === item.product_id; });
       var cust = customers.find(function(c){ return c.id === item.customer_id; });
       var expiry = new Date(item.warranty_expiry);
@@ -2562,11 +3340,181 @@
     computeNotifications();
   };
 
+  // ==================== Stock In/Out: Barcode + Persistence ====================
+  // เก็บ items pending ใน sessionStorage เพื่อให้กลับมาจากหน้าจัดการอะไหล่ได้
+  var STOCK_IN_KEY  = '_pending_stock_in';
+  var STOCK_OUT_KEY = '_pending_stock_out';
+
+  function savePendingStockIn() {
+    var items = [];
+    document.querySelectorAll('#wh-in-items-list .bulk-item-row').forEach(function(row) {
+      items.push({
+        part_id: row.querySelector('.bulk-part-select').value,
+        qty: row.querySelector('.bulk-qty-input').value,
+        price: row.querySelector('.bulk-price-input').value
+      });
+    });
+    var ref = document.getElementById('wh-in-ref');
+    sessionStorage.setItem(STOCK_IN_KEY, JSON.stringify({
+      ref: ref ? ref.value : '',
+      items: items
+    }));
+  }
+  function clearPendingStockIn() { sessionStorage.removeItem(STOCK_IN_KEY); }
+  function loadPendingStockIn() {
+    var raw = sessionStorage.getItem(STOCK_IN_KEY);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch(e) { return null; }
+  }
+  function savePendingStockOut() {
+    var items = [];
+    document.querySelectorAll('#wh-out-items-list .bulk-item-row').forEach(function(row) {
+      items.push({
+        part_id: row.querySelector('.bulk-part-select').value,
+        qty: row.querySelector('.bulk-qty-input').value
+      });
+    });
+    var ref = document.getElementById('wh-out-ref');
+    sessionStorage.setItem(STOCK_OUT_KEY, JSON.stringify({
+      ref: ref ? ref.value : '',
+      items: items
+    }));
+  }
+  function clearPendingStockOut() { sessionStorage.removeItem(STOCK_OUT_KEY); }
+  function loadPendingStockOut() {
+    var raw = sessionStorage.getItem(STOCK_OUT_KEY);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch(e) { return null; }
+  }
+
+  // ไปหน้าจัดการอะไหล่เพื่อเพิ่มฐานข้อมูล (จาก stock in/out)
+  window.gotoMasterPartsFromStock = function(fromMode) {
+    if (fromMode === 'in') savePendingStockIn();
+    else if (fromMode === 'out') savePendingStockOut();
+    closeModal('modal-warehouse-' + fromMode);
+    sessionStorage.setItem('_return_to_stock', fromMode);
+    switchView('master-parts');
+    showToast('info','เพิ่มอะไหล่ใหม่ลงฐานข้อมูล','ระบบจดจำรายการที่กรอกไว้แล้ว เมื่อเสร็จกดปุ่ม "กลับไปรับเข้า/จ่ายออก" ที่มุมขวาบน');
+  };
+
+  // กลับไปหน้ารับเข้า/จ่ายออกหลังเพิ่มอะไหล่
+  window.returnToPendingStock = function() {
+    var mode = sessionStorage.getItem('_return_to_stock');
+    if (!mode) return;
+    sessionStorage.removeItem('_return_to_stock');
+    if (mode === 'in') openReceiveStockModal();
+    else openIssueStockModal();
+  };
+
+  // ตรวจว่ามี pending → แสดงปุ่มกลับไปบน master-parts
+  function updateReturnToStockBanner() {
+    var banner = document.getElementById('return-to-stock-banner');
+    if (!banner) return;
+    var mode = sessionStorage.getItem('_return_to_stock');
+    if (mode) {
+      banner.style.display = 'flex';
+      banner.querySelector('.return-mode-label').textContent = mode === 'in' ? 'รับเข้าอะไหล่' : 'จ่ายอะไหล่';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  // เพิ่มอะไหล่ลงตาราง stock-in ผ่าน barcode/รหัส
+  window.addStockInByCode = function() {
+    var input = document.getElementById('wh-in-barcode-input');
+    var code = (input.value || '').trim();
+    if (!code) return;
+    var parts = DB.getAll('parts');
+    var found = parts.find(function(p){ return p.code === code || p.id === code; });
+    if (!found) {
+      showToast('warning','ไม่พบอะไหล่รหัส ' + code,'คลิก "ไปเพิ่มอะไหล่ใหม่" หากต้องการเพิ่มลงฐานข้อมูล');
+      input.value = ''; input.focus();
+      return;
+    }
+    // ตรวจว่ามีในตารางแล้วหรือยัง — ถ้ามี เพิ่มจำนวน
+    var existing = null;
+    document.querySelectorAll('#wh-in-items-list .bulk-item-row').forEach(function(row) {
+      var sel = row.querySelector('.bulk-part-select');
+      if (sel && sel.value === found.id) existing = row;
+    });
+    if (existing) {
+      var qtyEl = existing.querySelector('.bulk-qty-input');
+      qtyEl.value = (parseInt(qtyEl.value)||0) + 1;
+    } else {
+      addBulkInRow();
+      var rows = document.querySelectorAll('#wh-in-items-list .bulk-item-row');
+      var lastRow = rows[rows.length - 1];
+      lastRow.querySelector('.bulk-part-select').value = found.id;
+      lastRow.querySelector('.bulk-qty-input').value = 1;
+      lastRow.querySelector('.bulk-price-input').value = Math.round(found.price * 0.9);
+    }
+    showToast('success','เพิ่ม: ' + found.name,'');
+    input.value = ''; input.focus();
+  };
+
+  // เพิ่มอะไหล่ลงตาราง stock-out ผ่าน barcode/รหัส
+  window.addStockOutByCode = function() {
+    var input = document.getElementById('wh-out-barcode-input');
+    var code = (input.value || '').trim();
+    if (!code) return;
+    var parts = DB.getAll('parts');
+    var found = parts.find(function(p){ return p.code === code || p.id === code; });
+    if (!found) {
+      showToast('warning','ไม่พบอะไหล่รหัส ' + code,'คลิก "ไปเพิ่มอะไหล่ใหม่" หากต้องการ');
+      input.value = ''; input.focus();
+      return;
+    }
+    if (found.stock <= 0) {
+      showToast('danger','สต็อกหมด: ' + found.name,'ไม่สามารถเบิกได้');
+      input.value = ''; input.focus();
+      return;
+    }
+    var existing = null;
+    document.querySelectorAll('#wh-out-items-list .bulk-item-row').forEach(function(row) {
+      var sel = row.querySelector('.bulk-part-select');
+      if (sel && sel.value === found.id) existing = row;
+    });
+    if (existing) {
+      var qtyEl = existing.querySelector('.bulk-qty-input');
+      qtyEl.value = (parseInt(qtyEl.value)||0) + 1;
+    } else {
+      addBulkOutRow();
+      var rows = document.querySelectorAll('#wh-out-items-list .bulk-item-row');
+      var lastRow = rows[rows.length - 1];
+      lastRow.querySelector('.bulk-part-select').value = found.id;
+      lastRow.querySelector('.bulk-qty-input').value = 1;
+    }
+    showToast('success','เพิ่ม: ' + found.name,'');
+    input.value = ''; input.focus();
+  };
+
   window.openReceiveStockModal = function () {
-    document.getElementById('wh-in-ref').value = '';
+    var refEl = document.getElementById('wh-in-ref');
+    if (refEl) refEl.value = '';
     document.getElementById('wh-in-items-list').innerHTML = '';
-    addBulkInRow();
+    // โหลด pending ถ้ามี
+    var pending = loadPendingStockIn();
+    if (pending && pending.items && pending.items.length > 0) {
+      if (refEl) refEl.value = pending.ref || '';
+      pending.items.forEach(function(item) {
+        if (!item.part_id && !item.qty) return;
+        addBulkInRow();
+        var rows = document.querySelectorAll('#wh-in-items-list .bulk-item-row');
+        var last = rows[rows.length - 1];
+        last.querySelector('.bulk-part-select').value = item.part_id || '';
+        last.querySelector('.bulk-qty-input').value   = item.qty   || '';
+        last.querySelector('.bulk-price-input').value = item.price || '';
+      });
+      clearPendingStockIn();
+      showToast('success','โหลดรายการที่ค้างไว้','รายการก่อนหน้านี้ถูกนำกลับมาแล้ว');
+    } else {
+      addBulkInRow();
+    }
     openModal('modal-warehouse-in');
+    setTimeout(function(){
+      var bc = document.getElementById('wh-in-barcode-input');
+      if (bc) bc.focus();
+    }, 200);
   };
 
   window.addBulkInRow = function () {
@@ -2584,10 +3532,30 @@
   };
 
   window.openIssueStockModal = function () {
-    document.getElementById('wh-out-ref').value = '';
+    var refEl = document.getElementById('wh-out-ref');
+    if (refEl) refEl.value = '';
     document.getElementById('wh-out-items-list').innerHTML = '';
-    addBulkOutRow();
+    var pending = loadPendingStockOut();
+    if (pending && pending.items && pending.items.length > 0) {
+      if (refEl) refEl.value = pending.ref || '';
+      pending.items.forEach(function(item) {
+        if (!item.part_id && !item.qty) return;
+        addBulkOutRow();
+        var rows = document.querySelectorAll('#wh-out-items-list .bulk-item-row');
+        var last = rows[rows.length - 1];
+        last.querySelector('.bulk-part-select').value = item.part_id || '';
+        last.querySelector('.bulk-qty-input').value   = item.qty   || '';
+      });
+      clearPendingStockOut();
+      showToast('success','โหลดรายการที่ค้างไว้','');
+    } else {
+      addBulkOutRow();
+    }
     openModal('modal-warehouse-out');
+    setTimeout(function(){
+      var bc = document.getElementById('wh-out-barcode-input');
+      if (bc) bc.focus();
+    }, 200);
   };
 
   window.addBulkOutRow = function () {
@@ -2698,21 +3666,51 @@
     renderMasterProducts(DB.getAll('products').filter(function(p){ return p.name.toLowerCase().includes(q)||p.brand.toLowerCase().includes(q); }));
   };
 
+  window.toggleProdCodeMode = function(mode) {
+    var codeInput = document.getElementById('prod-form-pid');
+    var note = document.getElementById('prod-code-auto-note');
+    if (mode === 'auto') {
+      codeInput.value = '';
+      codeInput.placeholder = '(ระบบจะสร้างให้อัตโนมัติ)';
+      codeInput.readOnly = true;
+      codeInput.required = false;
+      codeInput.style.background = 'rgba(0,0,0,.03)';
+      if (note) note.style.display = 'block';
+    } else {
+      codeInput.placeholder = 'เช่น LP15-2024 (ตามผู้ผลิต)';
+      codeInput.readOnly = false;
+      codeInput.required = true;
+      codeInput.style.background = '';
+      if (note) note.style.display = 'none';
+    }
+    lucide.createIcons();
+  };
+
   window.openMasterProductModal = function (prodId) {
     var list = DB.getAll('products');
+    // reset โหมดรหัสเป็น manual ทุกครั้ง
+    var manualRadio = document.querySelector('input[name="prod-code-mode"][value="manual"]');
+    if (manualRadio) manualRadio.checked = true;
+    toggleProdCodeMode('manual');
     if (prodId) {
       var p = DB.find('products','id',prodId);
       document.getElementById('prod-form-id').value = 'edit';
       document.getElementById('prod-form-pid').value = p.id;
+      document.getElementById('prod-form-pid').readOnly = true; // แก้ไขห้ามเปลี่ยนรหัส (เป็น key)
       document.getElementById('prod-form-name').value = p.name;
       document.getElementById('prod-form-brand').value = p.brand;
       document.getElementById('prod-modal-title').textContent = 'แก้ไขสินค้า';
+      // ซ่อน radio ตอนแก้ไข (เปลี่ยนรหัสไม่ได้)
+      var modeRow = document.querySelector('input[name="prod-code-mode"]');
+      if (modeRow && modeRow.closest('div')) modeRow.closest('div').style.display = 'none';
     } else {
-      var maxNum = Math.max.apply(null,[0].concat(list.map(function(p){ return parseInt(p.id.replace('PROD',''))||0; })));
       document.getElementById('prod-form-id').value = 'new';
-      document.getElementById('prod-form-pid').value = 'PROD' + String(maxNum+1).padStart(3,'0');
+      document.getElementById('prod-form-pid').value = '';
       document.getElementById('prod-form-name').value = ''; document.getElementById('prod-form-brand').value = '';
       document.getElementById('prod-modal-title').textContent = 'เพิ่มสินค้าใหม่';
+      // แสดง radio
+      var modeRow2 = document.querySelector('input[name="prod-code-mode"]');
+      if (modeRow2 && modeRow2.closest('div')) modeRow2.closest('div').style.display = 'flex';
     }
     openModal('modal-master-product');
   };
@@ -2732,8 +3730,32 @@
     renderMasterParts(DB.getAll('parts').filter(function(p){ return p.name.toLowerCase().includes(q)||p.code.toLowerCase().includes(q); }));
   };
 
+  window.togglePartCodeMode = function(mode) {
+    var codeInput = document.getElementById('part-form-code');
+    var note = document.getElementById('part-code-auto-note');
+    if (mode === 'auto') {
+      codeInput.value = '';
+      codeInput.placeholder = '(ระบบจะสร้างให้อัตโนมัติ)';
+      codeInput.readOnly = true;
+      codeInput.required = false;
+      codeInput.style.background = 'rgba(0,0,0,.03)';
+      if (note) note.style.display = 'block';
+    } else {
+      codeInput.placeholder = 'เช่น FS-2A-250V (ตามผู้ผลิต)';
+      codeInput.readOnly = false;
+      codeInput.required = true;
+      codeInput.style.background = '';
+      if (note) note.style.display = 'none';
+    }
+    lucide.createIcons();
+  };
+
   window.openMasterPartModal = function (partId) {
     var list = DB.getAll('parts');
+    // reset โหมดรหัสเป็น manual ทุกครั้ง
+    var manualRadio = document.querySelector('input[name="code-mode"][value="manual"]');
+    if (manualRadio) manualRadio.checked = true;
+    togglePartCodeMode('manual');
     if (partId) {
       var p = DB.find('parts','id',partId);
       document.getElementById('part-form-id').value = 'edit';
@@ -2778,7 +3800,12 @@
   window.exportCSV = function (tableName) {
     var data = DB.getAll(tableName);
     if (data.length === 0) { showToast('warning','ไม่มีข้อมูล','ไม่พบรายการเพื่อ Export'); return; }
-    var headers = Object.keys(data[0]);
+    var allHeaders = Object.keys(data[0]);
+    // ใช้คอลัมน์ที่เลือกใน preview ถ้ามี
+    var headers = (_reportSelectedColumns && _reportSelectedColumns[tableName] && _reportSelectedColumns[tableName].length > 0)
+      ? _reportSelectedColumns[tableName].filter(function(h){ return allHeaders.includes(h); })
+      : allHeaders;
+    if (headers.length === 0) headers = allHeaders;
     var rows = data.map(function(row) {
       return headers.map(function(h) {
         var val = row[h];
@@ -2793,18 +3820,122 @@
     var a = document.createElement('a');
     a.href = url; a.download = 'MES_' + tableName + '_' + new Date().toISOString().substring(0,10) + '.csv';
     a.click(); URL.revokeObjectURL(url);
-    showToast('success','Export สำเร็จ!','บันทึกไฟล์ ' + tableName + '.csv แล้ว');
+    showToast('success','Export สำเร็จ!','บันทึกไฟล์ ' + tableName + '.csv (' + headers.length + ' คอลัมน์)');
+  };
+
+  // เก็บ state คอลัมน์ที่เลือกแสดงในแต่ละรายงาน
+  var _reportSelectedColumns = {};
+
+  // กรองรายงาน + dropdown ตาม role
+  function applyReportRoleFilter() {
+    var role = DB.getCurrentUser().role;
+    // ซ่อน export cards
+    var allowedReports;
+    if (role === 'warehouse') {
+      allowedReports = ['parts','parts_transactions'];
+    } else if (role === 'manager') {
+      allowedReports = ['repair_jobs','onsite_jobs','pm_jobs','delivered_products','parts','parts_transactions'];
+    } else if (role === 'supervisor' || role === 'admin') {
+      allowedReports = ['repair_jobs','onsite_jobs','pm_jobs','delivered_products','parts','parts_transactions'];
+    } else {
+      allowedReports = ['repair_jobs','onsite_jobs','pm_jobs','delivered_products'];
+    }
+    document.querySelectorAll('.export-card[data-report]').forEach(function(card) {
+      var rpt = card.getAttribute('data-report');
+      card.style.display = allowedReports.includes(rpt) ? '' : 'none';
+    });
+    // กรอง option ใน dropdown
+    var select = document.getElementById('report-preview-select');
+    if (select) {
+      var firstVisible = null;
+      Array.prototype.forEach.call(select.options, function(opt) {
+        var visible = allowedReports.includes(opt.value);
+        opt.style.display = visible ? '' : 'none';
+        opt.disabled = !visible;
+        if (visible && !firstVisible) firstVisible = opt.value;
+      });
+      // ถ้าค่าปัจจุบันถูกซ่อน → เลือกตัวแรกที่เห็น
+      if (!allowedReports.includes(select.value) && firstVisible) {
+        select.value = firstVisible;
+      }
+    }
+  }
+
+  // toggle column selector panel
+  window.toggleColumnSelector = function() {
+    var panel = document.getElementById('report-column-selector');
+    if (!panel) return;
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  };
+
+  window.selectAllReportColumns = function(checked) {
+    var tableName = document.getElementById('report-preview-select').value;
+    document.querySelectorAll('#report-column-checkboxes input[type=checkbox]').forEach(function(cb) {
+      cb.checked = checked;
+    });
+    // บันทึก state
+    var allChecked = [];
+    document.querySelectorAll('#report-column-checkboxes input[type=checkbox]').forEach(function(cb) {
+      if (cb.checked) allChecked.push(cb.value);
+    });
+    _reportSelectedColumns[tableName] = allChecked;
+    loadReportPreview();
   };
 
   window.loadReportPreview = function () {
+    applyReportRoleFilter();
     var select = document.getElementById('report-preview-select'); if (!select) return;
     var tableName = select.value;
     var data = DB.getAll(tableName);
     var container = document.getElementById('report-preview-table-container'); if (!container) return;
-    if (data.length === 0) { container.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">ไม่มีข้อมูล</p>'; return; }
-    var headers = Object.keys(data[0]);
-    var preview = data.slice(0,10);
-    container.innerHTML = '<table class="custom-table"><thead><tr>' + headers.map(function(h){ return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' + preview.map(function(row){ return '<tr>' + headers.map(function(h){ var val = row[h]; if(typeof val==='object'&&val!==null) val = JSON.stringify(val).substring(0,40)+'...'; return '<td style="font-size:.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (val!==null&&val!==undefined?val:'-') + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>' + (data.length>10?'<div style="text-align:center;padding:12px;font-size:.8rem;color:var(--text-muted);">แสดง 10/' + data.length + ' รายการ</div>':'');
+    if (data.length === 0) {
+      container.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">ไม่มีข้อมูล</p>';
+      var cbContainer = document.getElementById('report-column-checkboxes');
+      if (cbContainer) cbContainer.innerHTML = '';
+      return;
+    }
+    var allHeaders = Object.keys(data[0]);
+
+    // ถ้ายังไม่เคยเลือกคอลัมน์ของรายงานนี้ → default แสดงทุกคอลัมน์
+    if (!_reportSelectedColumns[tableName]) {
+      _reportSelectedColumns[tableName] = allHeaders.slice();
+    }
+    var selectedColumns = _reportSelectedColumns[tableName].filter(function(h){ return allHeaders.includes(h); });
+    if (selectedColumns.length === 0) selectedColumns = allHeaders.slice();
+
+    // Render checkbox list
+    var cbContainer = document.getElementById('report-column-checkboxes');
+    if (cbContainer) {
+      cbContainer.innerHTML = allHeaders.map(function(h) {
+        var checked = selectedColumns.includes(h);
+        return '<label style="display:flex;align-items:center;gap:5px;font-size:.82rem;background:#fff;padding:5px 10px;border-radius:6px;border:1px solid var(--border-color);cursor:pointer;">' +
+          '<input type="checkbox" value="' + h + '"' + (checked?' checked':'') + ' onchange="toggleReportColumn(\'' + tableName + '\',\'' + h + '\',this.checked)">' +
+          '<span>' + h + '</span>' +
+        '</label>';
+      }).join('');
+    }
+
+    var preview = data.slice(0, 10);
+    container.innerHTML = '<table class="custom-table"><thead><tr>' +
+      selectedColumns.map(function(h){ return '<th>' + h + '</th>'; }).join('') +
+      '</tr></thead><tbody>' +
+      preview.map(function(row) {
+        return '<tr>' + selectedColumns.map(function(h) {
+          var val = row[h];
+          if (typeof val === 'object' && val !== null) val = JSON.stringify(val).substring(0,40) + '...';
+          return '<td style="font-size:.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (val!==null&&val!==undefined?val:'-') + '</td>';
+        }).join('') + '</tr>';
+      }).join('') +
+      '</tbody></table>' +
+      (data.length > 10 ? '<div style="text-align:center;padding:12px;font-size:.8rem;color:var(--text-muted);">แสดง 10/' + data.length + ' รายการ (' + selectedColumns.length + '/' + allHeaders.length + ' คอลัมน์)</div>' : '');
+  };
+
+  window.toggleReportColumn = function(tableName, col, checked) {
+    var current = _reportSelectedColumns[tableName] || [];
+    if (checked && !current.includes(col)) current.push(col);
+    else if (!checked) current = current.filter(function(c){ return c !== col; });
+    _reportSelectedColumns[tableName] = current;
+    loadReportPreview();
   };
 
   // ==================== PICKER ====================
@@ -3226,8 +4357,104 @@
     }
 
     renderRepairHistory(job);
+    updateRollbackButton(job);
     openModal('modal-repair-progress');
     lucide.createIcons();
+  };
+
+  // กำหนดขั้นตอนก่อนหน้าของแต่ละสถานะ (ตาม flow) สำหรับ rollback
+  function getPreviousStatus(job) {
+    var status = job.status;
+    var wc = job.warranty_condition || 'out_warranty';
+    var ts = job.timestamps || {};
+    var claimRejected = !!ts['claim_rejected'];
+
+    // map ย้อนกลับมาตรฐาน
+    var backMap = {
+      checked:        'registered',
+      claim_sent:     'checked',
+      claim_approved: 'claim_sent',
+      claim_rejected: 'claim_sent',
+      quoted:         'checked',
+      quote_printed:  'quoted',
+      po_received:    'quote_printed',
+      claimed:        'claim_approved',
+      parts_issued:   null,   // กำหนดด้านล่างตาม path
+      ready_return:   'parts_issued',
+      returning:      'ready_return'
+    };
+
+    // parts_issued ย้อนกลับ: ขึ้นกับ path
+    if (status === 'parts_issued') {
+      if (wc === 'in_warranty' && !claimRejected) return 'claim_approved';
+      return 'po_received';
+    }
+    // quoted ที่มาจาก claim_rejected → ย้อนกลับเป็น claim_rejected ก่อน
+    if (status === 'quoted' && claimRejected) return 'claim_rejected';
+    // quote_printed ที่ผ่าน claim_rejected → ย้อนกลับเป็น claim_rejected
+    if (status === 'quote_printed' && claimRejected) return 'claim_rejected';
+
+    return backMap[status] || null;
+  }
+
+  function updateRollbackButton(job) {
+    var btn = document.getElementById('btn-rollback-step');
+    var label = document.getElementById('rollback-step-label');
+    if (!btn) return;
+    var currentUser = DB.getCurrentUser();
+    var canRollback = ['manager','supervisor','engineer','admin'].includes(currentUser.role);
+    var prev = getPreviousStatus(job);
+
+    // ไม่แสดงปุ่มถ้า: ปิดงานแล้ว / เป็นขั้นแรก / ไม่มีสิทธิ์
+    if (job.status === 'closed' || job.status === 'registered' || !prev || !canRollback) {
+      btn.style.display = 'none';
+      return;
+    }
+    btn.style.display = 'inline-flex';
+    if (label) label.textContent = 'ย้อนกลับ → ' + getStatusLabel(prev);
+  }
+
+  window.rollbackRepairStep = function() {
+    var jobId = document.getElementById('rep-prog-id').value;
+    var job = DB.find('repair_jobs','id',jobId); if (!job) return;
+    var prev = getPreviousStatus(job);
+    if (!prev) { showToast('warning','ย้อนกลับไม่ได้','ขั้นตอนนี้เป็นขั้นแรกสุดแล้ว'); return; }
+
+    var curLabel  = getStatusLabel(job.status);
+    var prevLabel = getStatusLabel(prev);
+    if (!confirm('ยืนยันย้อนกลับขั้นตอน?\n\nจาก: ' + curLabel + '\nกลับไป: ' + prevLabel + '\n\n⚠️ ข้อมูลของขั้นตอนปัจจุบันจะถูกล้าง เพื่อให้แก้ไขใหม่ได้')) return;
+
+    // ล้าง timestamp + step_actor ของ status ปัจจุบัน
+    var ts = job.timestamps || {};
+    delete ts[job.status];
+    var actors = job.step_actors || {};
+    delete actors[job.status];
+
+    // ข้อมูลที่ต้องล้างเมื่อย้อนกลับแต่ละ step (เพื่อให้กรอกใหม่)
+    var updates = { status: prev, timestamps: ts, step_actors: actors };
+    var clearFieldsByStatus = {
+      returning:      ['return_slip'],
+      ready_return:   ['repair_result'],
+      parts_issued:   ['parts_issued_by','parts_issued_at','parts_issue_file'],
+      po_received:    ['po'],
+      quote_printed:  [],
+      claim_approved: ['claim_approved_by','claim_approved_at'],
+      claim_rejected: ['claim_rejected_by','claim_rejected_at','po_rejected'],
+      claim_sent:     []
+    };
+    var toClear = clearFieldsByStatus[job.status] || [];
+    toClear.forEach(function(f){ updates[f] = null; });
+
+    // ถ้าย้อนจาก ready_return ที่เป็น po_rejected → ล้าง flag
+    if (job.po_rejected) updates.po_rejected = null;
+
+    DB.update('repair_jobs','id',jobId, updates);
+    showToast('success','ย้อนกลับสำเร็จ','กลับไปขั้นตอน "' + prevLabel + '" แล้ว — แก้ไขข้อมูลได้');
+    closeModal('modal-repair-progress');
+    renderRepairTable();
+    computeNotifications();
+    // เปิด modal ใหม่ที่ status ก่อนหน้า
+    setTimeout(function(){ openRepairProgressModal(jobId); }, 250);
   };
 
   // ==================== STAGE 1: แก้ไขข้อมูลลงทะเบียน ====================
@@ -3625,9 +4852,11 @@
       }
     } else {
       // Quote mode: fill fields
-      document.getElementById('rep-quote-no').value    = job.quotation ? job.quotation.number : ('QT-' + new Date().getFullYear() + '-' + job.id.slice(-4));
+      document.getElementById('rep-quote-no').value    = (job.quotation && job.quotation.number) ? job.quotation.number : genQuoteNumber();
       document.getElementById('rep-quote-date').value  = job.quotation ? job.quotation.date   : new Date().toISOString().substring(0,10);
       document.getElementById('rep-service-fee').value = job.quotation ? (job.quotation.service_fee||1500) : 1500;
+      var discEl = document.getElementById('rep-quote-discount');
+      if (discEl) discEl.value = (job.quotation && job.quotation.discount) ? job.quotation.discount : 0;
       document.getElementById('rep-quote-part-dropdown').style.display = 'none';
       renderQuotePartsTable();
     }
@@ -3686,17 +4915,39 @@
   window.updateQuoteQty   = function(idx,val){ _repairSelectedParts[idx].qty=Math.max(1,parseInt(val)||1); renderQuotePartsTable(); };
   window.removeQuotePart  = function(idx){ _repairSelectedParts.splice(idx,1); renderQuotePartsTable(); };
 
+  // สร้างเลขที่ใบเสนอราคา auto: QTYYYYMMXXX (running ต่อเดือน)
+  function genQuoteNumber() {
+    var now = new Date();
+    var ym = now.getFullYear() + String(now.getMonth()+1).padStart(2,'0');
+    var prefix = 'QT' + ym;
+    // หาเลข running สูงสุดของเดือนนี้จากทุกงานที่มี quotation
+    var maxRun = 0;
+    DB.getAll('repair_jobs').forEach(function(j) {
+      if (j.quotation && j.quotation.number) {
+        var m = String(j.quotation.number).match(/^QT(\d{6})(\d{3})$/);
+        if (m && m[1] === ym) {
+          var run = parseInt(m[2], 10);
+          if (run > maxRun) maxRun = run;
+        }
+      }
+    });
+    return prefix + String(maxRun + 1).padStart(3, '0');
+  }
+
   window.recalcQuoteTotal = function() {
     var partsSum = _repairSelectedParts.reduce(function(s,i){ return s+i.qty*i.price; },0);
-    var svc = parseInt(document.getElementById('rep-service-fee')?.value||0);
-    var sub  = partsSum + svc;
+    var svcEl = document.getElementById('rep-service-fee');
+    var discEl = document.getElementById('rep-quote-discount');
+    var svc = parseInt((svcEl && svcEl.value) || 0) || 0;
+    var disc = parseInt((discEl && discEl.value) || 0) || 0;
+    var sub  = Math.max(0, partsSum + svc - disc);
     var vat  = Math.round(sub * 0.07);
     var grand= sub + vat;
     var fmt  = function(n){ return '฿' + n.toLocaleString(); };
     var subEl=document.getElementById('rep-quote-subtotal'); if(subEl) subEl.textContent=fmt(sub);
     var vatEl=document.getElementById('rep-quote-vat');      if(vatEl) vatEl.textContent=fmt(vat);
     var gEl  =document.getElementById('rep-quote-grand');    if(gEl)   gEl.textContent=fmt(grand);
-    return {partsSum:partsSum,svc:svc,sub:sub,vat:vat,grand:grand};
+    return {partsSum:partsSum,svc:svc,discount:disc,sub:sub,vat:vat,grand:grand};
   };
 
   // ---- Print quotation → status: quote_printed ----
@@ -3709,7 +4960,7 @@
     var prodBrand = prod.brand || job.product_brand || '-';
     var custName  = cust.name  || job.customer_name  || '-';
     var co    = getCompanyInfo();
-    var qNo   = document.getElementById('rep-quote-no').value || ('QT-'+new Date().getFullYear()+'-'+jobId.slice(-4));
+    var qNo   = document.getElementById('rep-quote-no').value || genQuoteNumber();
     var qDate = document.getElementById('rep-quote-date').value || new Date().toISOString().substring(0,10);
     var totals= recalcQuoteTotal();
 
@@ -3718,41 +4969,16 @@
     DB.update('repair_jobs','id',jobId,{
       status:'quote_printed',
       parts_needed: _repairSelectedParts.map(function(p){ return {part_id:p.part_id,qty:p.qty}; }),
-      quotation:{ number:qNo, date:qDate, service_fee:totals.svc, amount:totals.grand, file:qNo+'.pdf' },
+      quotation:{ number:qNo, date:qDate, service_fee:totals.svc, discount:totals.discount, amount:totals.grand, file:qNo+'.pdf' },
+      step_actors: buildStepActors(job,'quote_printed'),
       timestamps: ts
     });
 
-    var rowsHtml = _repairSelectedParts.map(function(item,i){
-      return '<tr><td style="text-align:center;">'+(i+1)+'</td><td>'+item.name+'</td><td style="text-align:center;">'+item.qty+'</td><td style="text-align:right;">฿'+item.price.toLocaleString()+'</td><td style="text-align:right;">฿'+(item.qty*item.price).toLocaleString()+'</td></tr>';
-    }).join('') + '<tr style="background:rgba(99,102,241,.04);"><td style="text-align:center;">'+ (_repairSelectedParts.length+1) +'</td><td>ค่าแรง/ค่าบริการวิศวกรรม</td><td style="text-align:center;">1</td><td style="text-align:right;">฿'+totals.svc.toLocaleString()+'</td><td style="text-align:right;">฿'+totals.svc.toLocaleString()+'</td></tr>';
-
-    var bodyContent =
-      '<div class="g2" style="margin-bottom:14px;">'+
-        '<div><div class="lbl">ลูกค้า / โรงพยาบาล</div><div class="val">'+( cust.name||'-')+'</div>'+
-             '<div class="val" style="font-size:.85rem;color:var(--text-secondary);">'+(cust.address||'')+(cust.province?' '+cust.province:'')+'</div></div>'+
-        '<div style="text-align:right;font-size:12.5px;">'+
-          '<div class="lbl" style="text-align:right;">เลขที่ใบเสนอราคา</div><div class="val mono" style="text-align:right;">'+qNo+'</div>'+
-          '<div class="lbl" style="margin-top:8px;text-align:right;">วันที่</div><div class="val" style="text-align:right;">'+qDate+'</div>'+
-          '<div class="lbl" style="margin-top:8px;text-align:right;">อ้างอิงงาน</div><div class="val mono" style="text-align:right;">'+jobId+'</div>'+
-          '<div class="lbl" style="margin-top:8px;text-align:right;">เครื่องมือแพทย์</div><div class="val" style="text-align:right;">'+(prod.name||'-')+(job.sn?' (S/N: '+job.sn+')':'')+'</div>'+
-        '</div>'+
-      '</div>'+
-      '<table><thead><tr><th style="width:44px;text-align:center;">ลำดับ</th><th>รายการ</th><th style="width:70px;text-align:center;">จำนวน</th><th style="width:110px;text-align:right;">ราคา/หน่วย</th><th style="width:120px;text-align:right;">ยอดรวม</th></tr></thead>'+
-      '<tbody>'+rowsHtml+'</tbody></table>'+
-      '<div style="display:flex;justify-content:flex-end;margin-bottom:24px;">'+
-        '<table style="width:260px;border:none;">'+
-          '<tr><td style="padding:5px 10px;border:none;">Subtotal:</td><td style="text-align:right;font-weight:600;padding:5px 10px;border:none;">฿'+totals.sub.toLocaleString()+'</td></tr>'+
-          '<tr><td style="padding:5px 10px;border:none;">VAT 7%:</td><td style="text-align:right;padding:5px 10px;border:none;">฿'+totals.vat.toLocaleString()+'</td></tr>'+
-          '<tr style="border-top:2px solid #6366f1;"><td style="padding:9px 10px;font-weight:800;font-size:.95rem;border:none;">Grand Total:</td><td style="text-align:right;font-weight:800;font-size:.95rem;color:#4f46e5;padding:9px 10px;border:none;">฿'+totals.grand.toLocaleString()+'</td></tr>'+
-        '</table>'+
-      '</div>'+
-      '<div class="sigs">'+
-        '<div><div class="sig-line"></div><div class="sig-lbl">ผู้จัดทำ / วิศวกร</div></div>'+
-        '<div><div class="sig-line"></div><div class="sig-lbl">ผู้อนุมัติ / หัวหน้า</div></div>'+
-        '<div><div class="sig-line"></div><div class="sig-lbl">ผู้สั่งจ้าง / ลูกค้า</div></div>'+
-      '</div>';
-
-    openDocWindow(buildDocHTML('ใบเสนอราคา', bodyContent, jobId, co));
+    openDocWindow(buildQuotationHTML({
+      job:job, co:co, cust:cust, prod:prod, prodName:prodName, prodBrand:prodBrand, custName:custName,
+      qNo:qNo, qDate:qDate, svcFee:totals.svc, discount:totals.discount, parts:_repairSelectedParts,
+      partsSum:totals.partsSum, sub:totals.sub, vat:totals.vat, grand:totals.grand, jobId:jobId
+    }));
     renderRepairTable(); computeNotifications();
     showToast('success','พิมพ์ใบเสนอราคาสำเร็จ','สถานะ → เสนอราคาแล้ว');
   };
@@ -4734,10 +5960,23 @@
     document.getElementById('form-master-product').addEventListener('submit', function(e) {
       e.preventDefault();
       var mode = document.getElementById('prod-form-id').value;
-      var pid = document.getElementById('prod-form-pid').value;
+      var pid = document.getElementById('prod-form-pid').value.trim();
+      // ถ้าเพิ่มใหม่: ตรวจโหมดรหัส
+      if (mode === 'new') {
+        var codeModeEl = document.querySelector('input[name="prod-code-mode"]:checked');
+        var codeMode = codeModeEl ? codeModeEl.value : 'manual';
+        if (codeMode === 'auto' && !pid) {
+          var list = DB.getAll('products');
+          var maxNum = Math.max.apply(null,[0].concat(list.map(function(p){ return parseInt(p.id.replace('PROD',''))||0; })));
+          pid = 'PROD' + String(maxNum+1).padStart(3,'0');
+        }
+        if (!pid) { showToast('warning','กรุณาระบุรหัสสินค้า','หรือเลือก Run อัตโนมัติ'); return; }
+        // ตรวจรหัสซ้ำ
+        if (DB.find('products','id',pid)) { showToast('danger','รหัสสินค้าซ้ำ','รหัส ' + pid + ' มีอยู่แล้ว'); return; }
+      }
       var data = { id:pid, name:document.getElementById('prod-form-name').value.trim(), brand:document.getElementById('prod-form-brand').value.trim() };
       if (mode === 'edit') { DB.update('products','id',pid,data); showToast('success','แก้ไขสินค้าสำเร็จ',data.name); }
-      else { DB.insert('products',data); showToast('success','เพิ่มสินค้าสำเร็จ!',data.name); }
+      else { DB.insert('products',data); showToast('success','เพิ่มสินค้าสำเร็จ!',data.name + ' (' + pid + ')'); }
       closeModal('modal-master-product'); renderMasterProducts();
     });
 
@@ -4745,16 +5984,31 @@
       e.preventDefault();
       var mode = document.getElementById('part-form-id').value;
       var pid = document.getElementById('part-form-pid').value;
+      var codeModeEl = document.querySelector('input[name="code-mode"]:checked');
+      var codeMode = codeModeEl ? codeModeEl.value : 'manual';
+      var code = document.getElementById('part-form-code').value.trim();
+
+      // ถ้าเลือก Run Auto และยังไม่มี code → สร้างอัตโนมัติ
+      if (codeMode === 'auto' && !code) {
+        var existingParts = DB.getAll('parts');
+        var maxAuto = Math.max.apply(null, [0].concat(existingParts.map(function(p) {
+          var m = (p.code||'').match(/^PART-AUTO-(\d+)$/);
+          return m ? parseInt(m[1],10) : 0;
+        })));
+        code = 'PART-AUTO-' + String(maxAuto+1).padStart(3,'0');
+      }
+      if (!code) { showToast('warning','กรุณาระบุรหัสสินค้า','หรือเลือก Run อัตโนมัติ'); return; }
+
       var data = {
         id: pid,
-        code: document.getElementById('part-form-code').value.trim(),
+        code: code,
         name: document.getElementById('part-form-name').value.trim(),
         stock: parseInt(document.getElementById('part-form-stock').value,10),
         min_stock: parseInt(document.getElementById('part-form-min-stock').value,10),
         price: parseInt(document.getElementById('part-form-price').value,10)
       };
       if (mode === 'edit') { DB.update('parts','id',pid,data); showToast('success','แก้ไขอะไหล่สำเร็จ',data.name); }
-      else { DB.insert('parts',data); showToast('success','เพิ่มอะไหล่สำเร็จ!',data.name); }
+      else { DB.insert('parts',data); showToast('success','เพิ่มอะไหล่สำเร็จ!',data.name + ' (' + code + ')'); }
       closeModal('modal-master-part'); renderMasterParts(); computeNotifications();
     });
 
