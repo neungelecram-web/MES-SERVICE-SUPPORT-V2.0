@@ -5844,9 +5844,36 @@
     }
   };
 
+  // รวบรวม URL ไฟล์ทั้งหมดที่ผูกกับ record (เพื่อลบจาก Storage)
+  function collectRecordFiles(tableName, rec) {
+    var urls = [];
+    function add(v) { if (v && /^https?:\/\//.test(v)) urls.push(v); }
+    if (tableName === 'repair_jobs') {
+      if (rec.po) add(rec.po.file);
+      add(rec.parts_issue_file);
+      if (rec.closed_slip) add(rec.closed_slip.file);
+      if (rec.return_slip) add(rec.return_slip.file);
+      if (rec.quotation) add(rec.quotation.file);
+    } else if (tableName === 'onsite_jobs') {
+      add(rec.report_file);
+    } else if (tableName === 'pm_jobs') {
+      add(rec.report_file);
+    } else if (tableName === 'delivered_products') {
+      if (Array.isArray(rec.documents)) rec.documents.forEach(add);
+    }
+    return urls;
+  }
+
   window.deleteJob = function (tableName, keyVal, keyField) {
     keyField = keyField || 'id';
-    if (confirm('ยืนยันลบรายการนี้?')) {
+    if (confirm('ยืนยันลบรายการนี้?\n\n⚠️ ไฟล์เอกสารที่แนบกับรายการนี้จะถูกลบออกจากระบบด้วย')) {
+      // ลบไฟล์ที่ผูกกับ record ออกจาก Storage ก่อน (ประหยัดพื้นที่)
+      var rec = DB.find(tableName, keyField, keyVal);
+      if (rec && window.FileStore) {
+        var files = collectRecordFiles(tableName, rec);
+        files.forEach(function(url){ window.FileStore.remove(url); });
+        if (files.length > 0) console.log('[FileStore] ลบไฟล์แนบ ' + files.length + ' ไฟล์');
+      }
       DB.delete(tableName, keyField, keyVal);
       showToast('success','ลบข้อมูลสำเร็จ','');
       var viewMap = { repair_jobs:'repair', onsite_jobs:'onsite', delivered_products:'delivered' };
