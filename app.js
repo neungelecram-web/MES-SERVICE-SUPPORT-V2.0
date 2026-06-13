@@ -222,11 +222,6 @@
     if (user) showMainApp(user); else showLoginScreen();
   }
 
-  window.quickLogin = function (roleName) {
-    var user = DB.getAll('users').find(function(u){ return u.username.startsWith(roleName) || u.role === roleName; });
-    if (user) { DB.setCurrentUser(user); showMainApp(user); }
-  };
-
   document.getElementById('login-form').addEventListener('submit', function (e) {
     e.preventDefault();
     var u = document.getElementById('login-username').value.trim();
@@ -256,29 +251,10 @@
     };
     document.getElementById('nav-role').textContent = roleMap[user.role] || user.role;
     document.getElementById('nav-avatar').textContent = user.fullname.replace(/คุณ|วิศวกร\s*/g,'').substring(0,2);
-    updateRoleSelectorUI(user.role);
     applyRolePermissions(user);
     computeNotifications();
     // รอให้ DOM render เสร็จก่อนสร้าง chart เพื่อให้ animation ทำงาน
     setTimeout(function(){ switchView('dashboard'); }, 50);
-  }
-
-  window.testRoleSwitch = function (roleName) {
-    var user = DB.getAll('users').find(function(u){ return u.role === roleName; });
-    if (user) { DB.setCurrentUser(user); showMainApp(user); }
-  };
-
-  function updateRoleSelectorUI(role) {
-    document.querySelectorAll('.role-btn').forEach(function(b){ b.classList.remove('active'); });
-    var map = {
-      manager:   'role-toggle-manager',
-      supervisor:'role-toggle-supervisor',
-      engineer:  'role-toggle-engineer',
-      admin:     'role-toggle-admin',
-      warehouse: 'role-toggle-warehouse'
-    };
-    var btn = document.getElementById(map[role]);
-    if (btn) btn.classList.add('active');
   }
 
   function applyRolePermissions(user) {
@@ -3995,14 +3971,26 @@
   }
 
   // ==================== USERS ====================
+  function _userRowHtml(u, currentUser) {
+    var roleMap = { manager:'ผู้จัดการ', supervisor:'หัวหน้า', admin:'ธุรการ', engineer:'วิศวกร', warehouse:'คลังสินค้า' };
+    var isSelf = u.id === currentUser.id;
+    var editBtn = '<button class="btn btn-secondary btn-sm btn-icon-only" onclick="openEditUserModal(\'' + u.id + '\')" title="แก้ไข"><i data-lucide="edit-3"></i></button>';
+    var delBtn = !isSelf ? '<button class="btn btn-danger btn-sm btn-icon-only" onclick="deleteUser(\'' + u.id + '\')" title="ลบ"><i data-lucide="trash-2"></i></button>' : '<span style="color:var(--text-muted);font-size:.78rem;">(คุณเอง)</span>';
+    return '<td style="font-weight:700;">' + u.id + '</td>' +
+      '<td><code>' + u.username + '</code></td>' +
+      '<td><strong>' + u.fullname + '</strong></td>' +
+      '<td><span class="user-role-badge">' + (roleMap[u.role]||u.role) + '</span></td>' +
+      '<td>' + (u.zone||'-') + '</td>' +
+      '<td><div style="display:flex;gap:5px;align-items:center;">' + editBtn + delBtn + '</div></td>';
+  }
+
   window.renderUsersTable = function () {
     var list = DB.getAll('users'); var currentUser = DB.getCurrentUser();
     var body = document.getElementById('body-users'); if (!body) return;
-    var roleMap = { manager:'ผู้จัดการ', supervisor:'หัวหน้า', admin:'ธุรการ', engineer:'วิศวกร' };
     body.innerHTML = '';
     list.forEach(function(u) {
       var tr = document.createElement('tr');
-      tr.innerHTML = '<td style="font-weight:700;">' + u.id + '</td><td><code>' + u.username + '</code></td><td><strong>' + u.fullname + '</strong></td><td><span class="user-role-badge">' + (roleMap[u.role]||u.role) + '</span></td><td>' + u.zone + '</td><td>' + (u.id !== currentUser.id ? '<button class="btn btn-danger btn-sm" onclick="deleteUser(\'' + u.id + '\')"><i data-lucide="trash-2"></i></button>' : '<span style="color:var(--text-muted);font-size:.8rem;">(คุณเอง)</span>') + '</td>';
+      tr.innerHTML = _userRowHtml(u, currentUser);
       body.appendChild(tr);
     });
     lucide.createIcons();
@@ -4011,11 +3999,10 @@
   window.filterUsersTable = function () {
     var q = document.getElementById('users-search-input').value.toLowerCase();
     var body = document.getElementById('body-users'); var currentUser = DB.getCurrentUser();
-    var roleMap = { manager:'ผู้จัดการ', supervisor:'หัวหน้า', admin:'ธุรการ', engineer:'วิศวกร' };
     body.innerHTML = '';
     DB.getAll('users').filter(function(u){ return u.username.toLowerCase().includes(q)||u.fullname.toLowerCase().includes(q)||u.role.toLowerCase().includes(q); }).forEach(function(u) {
       var tr = document.createElement('tr');
-      tr.innerHTML = '<td style="font-weight:700;">' + u.id + '</td><td><code>' + u.username + '</code></td><td><strong>' + u.fullname + '</strong></td><td><span class="user-role-badge">' + (roleMap[u.role]||u.role) + '</span></td><td>' + u.zone + '</td><td>' + (u.id !== currentUser.id ? '<button class="btn btn-danger btn-sm" onclick="deleteUser(\'' + u.id + '\')"><i data-lucide="trash-2"></i></button>' : '') + '</td>';
+      tr.innerHTML = _userRowHtml(u, currentUser);
       body.appendChild(tr);
     });
     lucide.createIcons();
@@ -4027,12 +4014,72 @@
     document.getElementById('user-reg-id').value = 'USR' + String(maxNum+1).padStart(3,'0');
     ['user-reg-username','user-reg-password','user-reg-fullname'].forEach(function(id){ document.getElementById(id).value = ''; });
     document.getElementById('user-reg-role').value = 'engineer'; document.getElementById('user-reg-zone').value = 'Central';
+    document.getElementById('user-modal-title').textContent = 'เพิ่มผู้ใช้งานใหม่';
+    document.getElementById('user-reg-username').readOnly = false;
+    document.getElementById('user-reg-password').required = true;
+    var hint = document.getElementById('user-pwd-hint'); if (hint) hint.style.display = 'none';
+    openModal('modal-register-user');
+  };
+
+  window.openEditUserModal = function (userId) {
+    var u = DB.find('users','id',userId); if (!u) return;
+    document.getElementById('user-reg-id').value = u.id;
+    document.getElementById('user-reg-username').value = u.username;
+    document.getElementById('user-reg-username').readOnly = true; // ห้ามแก้ username (เป็น key login)
+    document.getElementById('user-reg-password').value = '';
+    document.getElementById('user-reg-password').required = false; // เว้นว่าง = ไม่เปลี่ยน
+    document.getElementById('user-reg-fullname').value = u.fullname;
+    document.getElementById('user-reg-role').value = u.role;
+    document.getElementById('user-reg-zone').value = u.zone || 'Central';
+    document.getElementById('user-modal-title').textContent = 'แก้ไขผู้ใช้งาน: ' + u.fullname;
+    var hint = document.getElementById('user-pwd-hint'); if (hint) hint.style.display = 'inline';
     openModal('modal-register-user');
   };
 
   window.deleteUser = function (userId) {
     if (confirm('ยืนยันลบผู้ใช้งาน?')) { DB.delete('users','id',userId); showToast('success','ลบผู้ใช้สำเร็จ',''); renderUsersTable(); }
   };
+
+  // แก้ไขโปรไฟล์ตัวเอง (ทุก role ใช้ได้)
+  window.openMyProfileModal = function () {
+    var u = DB.getCurrentUser(); if (!u) return;
+    document.getElementById('profile-username').value = u.username;
+    document.getElementById('profile-fullname').value = u.fullname;
+    ['profile-current-pwd','profile-new-pwd','profile-confirm-pwd'].forEach(function(id){ document.getElementById(id).value = ''; });
+    openModal('modal-my-profile');
+  };
+
+  function setupProfileForm() {
+    var form = document.getElementById('form-my-profile');
+    if (!form) return;
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var u = DB.getCurrentUser(); if (!u) return;
+      var fullname = document.getElementById('profile-fullname').value.trim();
+      var curPwd = document.getElementById('profile-current-pwd').value;
+      var newPwd = document.getElementById('profile-new-pwd').value;
+      var confirmPwd = document.getElementById('profile-confirm-pwd').value;
+      if (!fullname) { showToast('warning','กรุณากรอกชื่อ-นามสกุล',''); return; }
+
+      var upd = { fullname: fullname };
+
+      // ถ้าต้องการเปลี่ยนรหัสผ่าน
+      if (newPwd || confirmPwd || curPwd) {
+        var fresh = DB.find('users','id',u.id);
+        if (!curPwd || fresh.password !== curPwd) { showToast('danger','รหัสผ่านปัจจุบันไม่ถูกต้อง',''); return; }
+        if (newPwd.length < 4) { showToast('warning','รหัสผ่านใหม่สั้นเกินไป','อย่างน้อย 4 ตัวอักษร'); return; }
+        if (newPwd !== confirmPwd) { showToast('danger','รหัสผ่านใหม่ไม่ตรงกัน',''); return; }
+        upd.password = newPwd;
+      }
+
+      DB.update('users','id',u.id,upd);
+      DB.setCurrentUser(Object.assign({}, u, upd));
+      document.getElementById('nav-fullname').textContent = fullname;
+      document.getElementById('nav-avatar').textContent = fullname.replace(/คุณ|วิศวกร\s*/g,'').substring(0,2);
+      showToast('success','บันทึกโปรไฟล์สำเร็จ', upd.password ? 'เปลี่ยนรหัสผ่านแล้ว' : '');
+      closeModal('modal-my-profile');
+    });
+  }
 
   // ==================== REPAIR WORKFLOW ====================
 
@@ -5306,8 +5353,21 @@
           '<i data-lucide="printer" style="width:11px;height:11px;"></i>พิมพ์' +
           '</button>';
       } else if (d.isUpload && d.hasDoc) {
-        printBtn = '<span style="font-size:.72rem;color:var(--success);display:flex;align-items:center;gap:4px;">' +
-          '<i data-lucide="check-circle" style="width:11px;height:11px;"></i>อัปโหลดแล้ว</span>';
+        // ระบุ field path ของไฟล์ตาม step
+        var filePath = d.key === 'po_received' && d.label.indexOf('PO') >= 0 ? 'po.file'
+                     : d.key === 'parts_issued' ? 'parts_issue_file'
+                     : d.key === 'closed' ? 'closed_slip.file'
+                     : null;
+        var fileVal = filePath === 'po.file' ? (job.po && job.po.file)
+                    : filePath === 'parts_issue_file' ? job.parts_issue_file
+                    : filePath === 'closed_slip.file' ? (job.closed_slip && job.closed_slip.file)
+                    : null;
+        var canEdit = job.status !== 'closed';
+        printBtn = '<div style="display:flex;gap:4px;align-items:center;">' +
+          '<button class="btn btn-outline btn-sm" onclick="openStoredFile(' + JSON.stringify(fileVal||'').replace(/"/g,'&quot;') + ')" style="font-size:.72rem;padding:3px 9px;"><i data-lucide="eye" style="width:11px;height:11px;"></i>เปิด</button>' +
+          (canEdit && filePath ? '<button class="btn btn-secondary btn-sm btn-icon-only" onclick="replaceJobFile(\'repair_jobs\',\'id\',\'' + jobId + '\',\'' + filePath + '\')" title="เปลี่ยนไฟล์" style="padding:3px 7px;"><i data-lucide="refresh-cw" style="width:11px;height:11px;"></i></button>' : '') +
+          (canEdit && filePath ? '<button class="btn btn-danger btn-sm btn-icon-only" onclick="deleteJobFile(\'repair_jobs\',\'id\',\'' + jobId + '\',\'' + filePath + '\')" title="ลบไฟล์" style="padding:3px 7px;"><i data-lucide="trash-2" style="width:11px;height:11px;"></i></button>' : '') +
+        '</div>';
       }
 
       return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(0,0,0,.05);">' +
@@ -5624,6 +5684,24 @@
   window.openModal = function (id) { document.getElementById(id).classList.add('active'); };
   window.closeModal = function (id) { document.getElementById(id).classList.remove('active'); };
 
+  // ดึงชื่อไฟล์สำหรับแสดงผล (รองรับทั้ง URL จาก Storage และชื่อไฟล์เก่า)
+  window.fileDisplayName = function (val) {
+    if (!val) return '';
+    if (/^https?:\/\//.test(val)) {
+      var seg = decodeURIComponent(val.split('/').pop() || '');
+      // ตัด prefix key_timestamp_ ออก (เช่น po-file_1718000000000_report.pdf → report.pdf)
+      var m = seg.match(/^.+?_\d{13}_(.+)$/);
+      return m ? m[1] : seg;
+    }
+    return val;
+  };
+
+  // เปิดไฟล์ที่เก็บไว้ (URL = เปิดแท็บใหม่ / ชื่อไฟล์เก่า = แจ้งเตือน)
+  window.openStoredFile = function (val) {
+    if (val && /^https?:\/\//.test(val)) { window.open(val, '_blank'); return; }
+    showToast('warning','ไม่พบไฟล์จริง','รายการนี้บันทึกไว้เฉพาะชื่อไฟล์ (อัปโหลดก่อนเปิดระบบจัดเก็บไฟล์)');
+  };
+
   window.simulateFileUpload = function (key) {
     // สร้าง hidden file input รองรับ PDF + รูปภาพ (สะดวกกรณี upload จากมือถือ)
     var input = document.createElement('input');
@@ -5644,32 +5722,126 @@
 
       var fileName = file.name;
       var isImage  = file.type.startsWith('image/');
-
-      // เก็บชื่อไฟล์ไว้ใช้งาน
-      simulatedFiles[key] = fileName;
-
-      // แสดงผล: ชื่อไฟล์ + thumbnail ถ้าเป็นรูปภาพ
       var span = document.getElementById(key + '-name');
-      if (span) {
-        if (isImage) {
+
+      function renderDone(url) {
+        if (!span) return;
+        var openLink = url ? ' <a href="' + url + '" target="_blank" style="color:var(--primary);font-size:.78rem;text-decoration:underline;">เปิดดู</a>' : '';
+        if (isImage && !url) {
           var reader = new FileReader();
           reader.onload = function(e) {
             span.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;">' +
               '<img src="' + e.target.result + '" style="height:48px;width:auto;border-radius:4px;border:1px solid #d1d5db;object-fit:cover;" alt="preview">' +
-              '<span style="color:var(--success);font-weight:600;font-size:.85rem;">✓ ' + fileName + '</span>' +
-            '</div>';
+              '<span style="color:var(--success);font-weight:600;font-size:.85rem;">✓ ' + fileName + '</span></div>';
           };
           reader.readAsDataURL(file);
         } else {
-          span.innerHTML = '<span style="color:var(--success);font-weight:600;font-size:.85rem;">✓ ' + fileName + '</span>';
+          span.innerHTML = '<span style="color:var(--success);font-weight:600;font-size:.85rem;">✓ ' + fileName + '</span>' + openLink;
         }
       }
 
-      showToast('success','อัปโหลดสำเร็จ', fileName + (isImage ? ' (รูปภาพ)' : ' (PDF)'));
+      if (window.FileStore) {
+        // โหมด Supabase: อัปโหลดไฟล์จริงขึ้น Storage
+        if (span) span.innerHTML = '<span style="color:#d97706;font-size:.85rem;">⏳ กำลังอัปโหลด ' + fileName + '...</span>';
+        var safe = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+        var path = key + '_' + Date.now() + '_' + safe;
+        window.FileStore.upload(file, path).then(function(url) {
+          simulatedFiles[key] = url; // เก็บ URL จริง — เปิดดูได้ทุกเครื่อง
+          renderDone(url);
+          showToast('success','อัปโหลดไฟล์สำเร็จ', fileName);
+        }).catch(function(err) {
+          console.error('[FileStore]', err);
+          if (span) span.innerHTML = '<span style="color:var(--danger);font-size:.82rem;">✗ อัปโหลดไม่สำเร็จ — ลองใหม่</span>';
+          showToast('danger','อัปโหลดไม่สำเร็จ','ตรวจสอบว่าสร้าง bucket "files" ใน Supabase แล้ว (รัน supabase_storage.sql)');
+        });
+      } else {
+        // โหมดทดสอบ (localStorage): เก็บแค่ชื่อไฟล์เหมือนเดิม
+        simulatedFiles[key] = fileName;
+        renderDone(null);
+        showToast('success','บันทึกชื่อไฟล์', fileName + ' (โหมดทดสอบ — ไม่เก็บไฟล์จริง)');
+      }
       document.body.removeChild(input);
     };
 
     input.click();
+  };
+
+  // เปลี่ยนไฟล์ที่บันทึกไปแล้ว (อัปโหลดใหม่ + ลบไฟล์เก่าจาก Storage)
+  window.replaceJobFile = function (table, keyField, keyVal, fieldPath) {
+    if (!window.FileStore) { showToast('warning','ใช้ได้เฉพาะโหมด Supabase','โหมดทดสอบไม่รองรับจัดเก็บไฟล์จริง'); return; }
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf,.jpg,.jpeg,.png,.webp,image/*,application/pdf';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.onchange = function() {
+      var file = input.files[0];
+      document.body.removeChild(input);
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024) { showToast('danger','ไฟล์ใหญ่เกินไป','ไม่เกิน 10MB'); return; }
+      var rec = DB.find(table, keyField, keyVal); if (!rec) return;
+      // อ่านค่าเดิม (รองรับ nested field เช่น 'po.file')
+      var parts = fieldPath.split('.');
+      var oldVal = parts.length === 2 ? ((rec[parts[0]]||{})[parts[1]]) : rec[fieldPath];
+
+      showToast('info','กำลังอัปโหลดไฟล์ใหม่...', file.name);
+      var safe = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+      var path = keyVal + '_' + Date.now() + '_' + safe;
+      window.FileStore.upload(file, path).then(function(url) {
+        var upd = {};
+        if (parts.length === 2) {
+          var obj = Object.assign({}, rec[parts[0]] || {});
+          obj[parts[1]] = url;
+          upd[parts[0]] = obj;
+        } else {
+          upd[fieldPath] = url;
+        }
+        DB.update(table, keyField, keyVal, upd);
+        // ลบไฟล์เก่าทิ้ง (ถ้าเป็นไฟล์ใน Storage)
+        if (oldVal) window.FileStore.remove(oldVal);
+        showToast('success','เปลี่ยนไฟล์สำเร็จ', file.name + ' (ลบไฟล์เก่าแล้ว)');
+        // refresh panel เอกสารถ้าเปิดอยู่
+        if (table === 'repair_jobs') {
+          var j = DB.find('repair_jobs','id',keyVal);
+          if (j) renderRepairHistory(j);
+        } else if (table === 'onsite_jobs') {
+          renderOnsiteTable();
+        } else if (table === 'pm_jobs') {
+          renderPmView();
+        }
+      }).catch(function(err) {
+        console.error('[FileStore]', err);
+        showToast('danger','อัปโหลดไม่สำเร็จ','ลองใหม่อีกครั้ง');
+      });
+    };
+    input.click();
+  };
+
+  // ลบไฟล์ที่บันทึกไปแล้ว (ล้าง field + ลบจาก Storage)
+  window.deleteJobFile = function (table, keyField, keyVal, fieldPath) {
+    if (!confirm('ยืนยันลบไฟล์นี้?\n\nไฟล์จะถูกลบออกจากระบบถาวร')) return;
+    var rec = DB.find(table, keyField, keyVal); if (!rec) return;
+    var parts = fieldPath.split('.');
+    var oldVal = parts.length === 2 ? ((rec[parts[0]]||{})[parts[1]]) : rec[fieldPath];
+    var upd = {};
+    if (parts.length === 2) {
+      var obj = Object.assign({}, rec[parts[0]] || {});
+      obj[parts[1]] = null;
+      upd[parts[0]] = obj;
+    } else {
+      upd[fieldPath] = null;
+    }
+    DB.update(table, keyField, keyVal, upd);
+    if (oldVal && window.FileStore) window.FileStore.remove(oldVal);
+    showToast('success','ลบไฟล์สำเร็จ','');
+    if (table === 'repair_jobs') {
+      var j = DB.find('repair_jobs','id',keyVal);
+      if (j) renderRepairHistory(j);
+    } else if (table === 'onsite_jobs') {
+      renderOnsiteTable();
+    } else if (table === 'pm_jobs') {
+      renderPmView();
+    }
   };
 
   window.deleteJob = function (tableName, keyVal, keyField) {
@@ -5685,6 +5857,7 @@
 
   // ==================== FORM LISTENERS ====================
   function setupFormListeners() {
+    setupProfileForm();
 
     document.getElementById('form-register-repair').addEventListener('submit', function(e) {
       e.preventDefault();
@@ -5916,9 +6089,28 @@
       var fullname = document.getElementById('user-reg-fullname').value.trim();
       var role = document.getElementById('user-reg-role').value;
       var zone = document.getElementById('user-reg-zone').value;
-      if (DB.find('users','username',username)) { showToast('danger','Username ซ้ำ',username + ' มีในระบบแล้ว'); return; }
-      DB.insert('users',{ id:userId, username:username, password:password, fullname:fullname, role:role, zone:zone });
-      showToast('success','เพิ่มผู้ใช้งานสำเร็จ!',fullname);
+      var existing = DB.find('users','id',userId);
+
+      if (existing) {
+        // โหมดแก้ไข — username ห้ามซ้ำกับคนอื่น
+        var dupe = DB.getAll('users').find(function(x){ return x.username === username && x.id !== userId; });
+        if (dupe) { showToast('danger','Username ซ้ำ',username + ' มีผู้ใช้อื่นแล้ว'); return; }
+        var upd = { username:username, fullname:fullname, role:role, zone:zone };
+        if (password) upd.password = password; // เปลี่ยนเฉพาะเมื่อกรอกใหม่
+        DB.update('users','id',userId,upd);
+        // ถ้าแก้ตัวเอง → อัปเดต session
+        var cu = DB.getCurrentUser();
+        if (cu && cu.id === userId) {
+          DB.setCurrentUser(Object.assign({}, cu, upd));
+          document.getElementById('nav-fullname').textContent = fullname;
+        }
+        showToast('success','แก้ไขผู้ใช้งานสำเร็จ',fullname);
+      } else {
+        // โหมดเพิ่มใหม่
+        if (DB.find('users','username',username)) { showToast('danger','Username ซ้ำ',username + ' มีในระบบแล้ว'); return; }
+        DB.insert('users',{ id:userId, username:username, password:password, fullname:fullname, role:role, zone:zone });
+        showToast('success','เพิ่มผู้ใช้งานสำเร็จ!',fullname);
+      }
       closeModal('modal-register-user'); renderUsersTable();
     });
 

@@ -14,8 +14,9 @@
   'use strict';
 
   // ====== ⚙️ ตั้งค่า Supabase (แก้ 2 บรรทัดนี้) ======
-  var SUPABASE_URL      = 'https://suzhjrypskihmnhnbwgn.supabase.co';
+   var SUPABASE_URL      = 'https://suzhjrypskihmnhnbwgn.supabase.co';
   var SUPABASE_ANON_KEY = 'sb_publishable_ph4_MTlHUOMFWQ9_7XMRwA_k8ZQ14uD';
+
   // ===================================================
 
   var TABLES = ['company_settings','sales_zones','users','customers','products','delivered_products',
@@ -162,5 +163,37 @@
   };
 
   window.DB = DB;
+
+  // ====== FileStore — จัดเก็บไฟล์จริงบน Supabase Storage ======
+  // ต้องสร้าง bucket ชื่อ 'files' (public) ใน Supabase ก่อน (ดู supabase_storage.sql)
+  var FILE_BUCKET = 'files';
+  window.FileStore = {
+    // อัปโหลดไฟล์ → คืน public URL
+    upload: function (file, path) {
+      return fetch(SUPABASE_URL + '/storage/v1/object/' + FILE_BUCKET + '/' + path, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+          'Content-Type': file.type || 'application/octet-stream',
+          'x-upsert': 'true'
+        },
+        body: file
+      }).then(function (res) {
+        if (!res.ok) return res.text().then(function(t){ throw new Error('upload failed: ' + t); });
+        return SUPABASE_URL + '/storage/v1/object/public/' + FILE_BUCKET + '/' + path;
+      });
+    },
+    // ลบไฟล์จาก public URL (คืน true/false)
+    remove: function (publicUrl) {
+      var prefix = SUPABASE_URL + '/storage/v1/object/public/' + FILE_BUCKET + '/';
+      if (!publicUrl || publicUrl.indexOf(prefix) !== 0) return Promise.resolve(false);
+      var path = publicUrl.substring(prefix.length);
+      return fetch(SUPABASE_URL + '/storage/v1/object/' + FILE_BUCKET + '/' + path, {
+        method: 'DELETE',
+        headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY }
+      }).then(function (res) { return res.ok; }).catch(function(){ return false; });
+    }
+  };
 
 })(window);

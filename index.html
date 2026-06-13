@@ -47,18 +47,6 @@
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%;padding:13px;justify-content:center;background:linear-gradient(135deg,#6366f1,#4f46e5);box-shadow:0 6px 24px rgba(99,102,241,.4);">เข้าสู่ระบบ</button>
     </form>
-    <div style="margin-top:20px;border-top:1px solid rgba(255,255,255,.08);padding-top:18px;">
-      <span style="font-size:.75rem;color:rgba(255,255,255,.3);display:block;margin-bottom:10px;">ทางลัดสำหรับทดสอบ (Quick Login)</span>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        <button class="btn btn-sm" onclick="quickLogin('manager')"          style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">👔 ผู้จัดการ</button>
-        <button class="btn btn-sm" onclick="quickLogin('supervisor')"        style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">🔑 หัวหน้างาน</button>
-        <button class="btn btn-sm" onclick="quickLogin('engineer_north')"    style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">🔧 ช่างภาคเหนือ</button>
-        <button class="btn btn-sm" onclick="quickLogin('engineer_central')"  style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">🔧 ช่างภาคกลาง</button>
-        <button class="btn btn-sm" onclick="quickLogin('engineer_east')"     style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">🔧 ช่างภาคตะวันออก</button>
-        <button class="btn btn-sm" onclick="quickLogin('warehouse')"         style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">📦 คลังสินค้า</button>
-        <button class="btn btn-sm" onclick="quickLogin('admin')"             style="background:rgba(255,255,255,.07);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.1);">⚙️ ธุรการ</button>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -175,6 +163,9 @@
           <div class="user-role-badge" id="nav-role">ช่างบริการ</div>
         </div>
       </div>
+      <button class="btn btn-outline btn-sm" onclick="openMyProfileModal()" style="width:100%;justify-content:center;margin-bottom:8px;">
+        <i data-lucide="user-cog"></i>แก้ไขโปรไฟล์ของฉัน
+      </button>
       <button class="btn btn-secondary btn-sm" onclick="logout()" style="width:100%;justify-content:center;">
         <i data-lucide="log-out"></i>ออกจากระบบ
       </button>
@@ -193,14 +184,6 @@
         </div>
       </div>
       <div class="header-actions">
-        <span style="font-size:.75rem;color:var(--text-secondary);">สลับสิทธิ์ทดสอบ:</span>
-        <div class="role-toggle-wrapper">
-          <button class="role-btn" id="role-toggle-manager"   onclick="testRoleSwitch('manager')">Manager</button>
-          <button class="role-btn" id="role-toggle-supervisor" onclick="testRoleSwitch('supervisor')">Supervisor</button>
-          <button class="role-btn" id="role-toggle-engineer"  onclick="testRoleSwitch('engineer')">Engineer</button>
-          <button class="role-btn" id="role-toggle-admin"     onclick="testRoleSwitch('admin')">Admin</button>
-          <button class="role-btn" id="role-toggle-warehouse" onclick="testRoleSwitch('warehouse')">Warehouse</button>
-        </div>
         <button class="notif-bell-btn" onclick="toggleNotifDropdown()" id="notif-bell-btn">
           <i data-lucide="bell" style="width:18px;height:18px;"></i>
           <span class="notif-bell-badge" id="notif-bell-count" style="display:none;">0</span>
@@ -1640,13 +1623,14 @@
       <form id="form-register-user">
         <input type="hidden" id="user-reg-id">
         <div class="form-group"><label class="form-label">Username <span style="color:var(--danger)">*</span></label><input type="text" id="user-reg-username" class="form-control" placeholder="somchai_eng" required></div>
-        <div class="form-group"><label class="form-label">Password <span style="color:var(--danger)">*</span></label><input type="password" id="user-reg-password" class="form-control" required></div>
+        <div class="form-group"><label class="form-label">Password <span style="color:var(--danger)">*</span> <span id="user-pwd-hint" style="display:none;font-size:.75rem;color:var(--text-muted);font-weight:400;">(เว้นว่างไว้ถ้าไม่ต้องการเปลี่ยน)</span></label><input type="password" id="user-reg-password" class="form-control" required></div>
         <div class="form-group"><label class="form-label">ชื่อ-นามสกุล <span style="color:var(--danger)">*</span></label><input type="text" id="user-reg-fullname" class="form-control" required></div>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">บทบาท <span style="color:var(--danger)">*</span></label>
             <select id="user-reg-role" class="form-control" required>
               <option value="engineer">วิศวกร/ช่างบริการ</option>
+              <option value="warehouse">เจ้าหน้าที่คลังสินค้า</option>
               <option value="admin">ธุรการบริการ</option>
               <option value="supervisor">หัวหน้าฝ่าย</option>
               <option value="manager">ผู้จัดการ</option>
@@ -1666,6 +1650,47 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="closeModal('modal-register-user')">ยกเลิก</button>
           <button type="submit" class="btn btn-primary">บันทึกข้อมูล</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Master Customer -->
+<div class="modal-overlay" id="modal-my-profile">
+  <div class="modal-container" style="max-width:460px;">
+    <div class="modal-header">
+      <h3 class="modal-title"><i data-lucide="user-cog"></i> แก้ไขโปรไฟล์ของฉัน</h3>
+      <button class="modal-close" onclick="closeModal('modal-my-profile')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-my-profile">
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input type="text" id="profile-username" class="form-control" readonly style="background:rgba(0,0,0,.03);">
+        </div>
+        <div class="form-group">
+          <label class="form-label">ชื่อ-นามสกุล <span style="color:var(--danger)">*</span></label>
+          <input type="text" id="profile-fullname" class="form-control" required>
+        </div>
+        <div style="border-top:1px solid var(--border-color);margin:16px 0;padding-top:16px;">
+          <div style="font-size:.85rem;font-weight:700;color:var(--text-secondary);margin-bottom:10px;"><i data-lucide="lock" style="width:14px;height:14px;display:inline;vertical-align:middle;"></i> เปลี่ยนรหัสผ่าน (เว้นว่างถ้าไม่เปลี่ยน)</div>
+          <div class="form-group">
+            <label class="form-label">รหัสผ่านปัจจุบัน</label>
+            <input type="password" id="profile-current-pwd" class="form-control" placeholder="กรอกเพื่อยืนยันตัวตน">
+          </div>
+          <div class="form-group">
+            <label class="form-label">รหัสผ่านใหม่</label>
+            <input type="password" id="profile-new-pwd" class="form-control" placeholder="อย่างน้อย 4 ตัวอักษร">
+          </div>
+          <div class="form-group">
+            <label class="form-label">ยืนยันรหัสผ่านใหม่</label>
+            <input type="password" id="profile-confirm-pwd" class="form-control">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-my-profile')">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary"><i data-lucide="save"></i>บันทึก</button>
         </div>
       </form>
     </div>
@@ -1983,7 +2008,7 @@
 <!-- CDN SCRIPTS -->
 <script src="https://unpkg.com/lucide@latest"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="db-supabase.js"></script>
+<script src="db.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
