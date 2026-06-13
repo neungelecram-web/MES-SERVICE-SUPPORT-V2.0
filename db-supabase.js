@@ -14,7 +14,7 @@
   'use strict';
 
   // ====== ⚙️ ตั้งค่า Supabase (แก้ 2 บรรทัดนี้) ======
-   var SUPABASE_URL      = 'https://suzhjrypskihmnhnbwgn.supabase.co';
+  var SUPABASE_URL      = 'https://suzhjrypskihmnhnbwgn.supabase.co';
   var SUPABASE_ANON_KEY = 'sb_publishable_ph4_MTlHUOMFWQ9_7XMRwA_k8ZQ14uD';
 
   // ===================================================
@@ -187,12 +187,32 @@
     // ลบไฟล์จาก public URL (คืน true/false)
     remove: function (publicUrl) {
       var prefix = SUPABASE_URL + '/storage/v1/object/public/' + FILE_BUCKET + '/';
-      if (!publicUrl || publicUrl.indexOf(prefix) !== 0) return Promise.resolve(false);
-      var path = publicUrl.substring(prefix.length);
-      return fetch(SUPABASE_URL + '/storage/v1/object/' + FILE_BUCKET + '/' + path, {
+      if (!publicUrl || publicUrl.indexOf(prefix) !== 0) {
+        console.warn('[FileStore] remove: URL ไม่ตรงรูปแบบ', publicUrl);
+        return Promise.resolve(false);
+      }
+      // แกะ path แล้ว decode (เผื่อชื่อไฟล์มีอักขระที่ถูก encode ใน URL)
+      var rawPath = publicUrl.substring(prefix.length);
+      var path = decodeURIComponent(rawPath);
+      return fetch(SUPABASE_URL + '/storage/v1/object/' + FILE_BUCKET + '/' + encodeURIComponent(path), {
         method: 'DELETE',
-        headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY }
-      }).then(function (res) { return res.ok; }).catch(function(){ return false; });
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+        }
+      }).then(function (res) {
+        if (res.ok) {
+          console.log('[FileStore] ลบไฟล์สำเร็จ:', path);
+          return true;
+        }
+        return res.text().then(function(t){
+          console.error('[FileStore] ลบไฟล์ไม่สำเร็จ:', path, '|', res.status, t);
+          return false;
+        });
+      }).catch(function(err){
+        console.error('[FileStore] remove error:', err);
+        return false;
+      });
     }
   };
 
