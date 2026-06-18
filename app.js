@@ -3154,6 +3154,9 @@
     if (isEngineer) {
       var myCusts = DB.getAll('customers').filter(function(c){ return c.zone===currentUser.zone; }).map(function(c){ return c.id; });
       all = all.filter(function(pm){
+        // ถ้า PM ถูก assign ให้ช่างคนใดคนหนึ่งแล้ว → เห็นเฉพาะคนนั้น
+        if (pm.assigned_to) return pm.assigned_to === currentUser.id;
+        // ถ้ายังไม่ได้ assign → เห็นตามเขตที่รับผิดชอบ
         var dp = delivered.find(function(d){ return d.sn===pm.sn; });
         return dp && myCusts.includes(dp.customer_id);
       });
@@ -6167,6 +6170,12 @@
         if (files.length > 0) console.log('[FileStore] ลบไฟล์แนบ ' + files.length + ' ไฟล์');
       }
       DB.delete(tableName, keyField, keyVal);
+      // ถ้าลบเครื่องส่งมอบ → ลบแผน PM ที่ผูกกับ SN นั้นด้วย (เฉพาะที่ยังไม่ completed)
+      if (tableName === 'delivered_products') {
+        var relatedPms = DB.getAll('pm_jobs').filter(function(pm){ return pm.sn === keyVal && pm.status !== 'completed'; });
+        relatedPms.forEach(function(pm){ DB.delete('pm_jobs','id',pm.id); });
+        if (relatedPms.length > 0) console.log('[PM] ลบแผน PM ที่เกี่ยวข้อง ' + relatedPms.length + ' รายการ');
+      }
       showToast('success','ลบข้อมูลสำเร็จ','');
       var viewMap = { repair_jobs:'repair', onsite_jobs:'onsite', delivered_products:'delivered' };
       loadViewData(viewMap[tableName] || tableName);
@@ -6291,8 +6300,18 @@
       };
 
       if (mode === 'edit') {
+        var oldRec = DB.find('delivered_products','sn',sn) || {};
         DB.update('delivered_products', 'sn', sn, record);
-        showToast('success', 'แก้ไขข้อมูลสำเร็จ!', 'S/N: ' + sn);
+        // ถ้าวันส่งมอบ / interval / วันหมดประกัน เปลี่ยน → สร้างแผน PM ใหม่
+        var changed = oldRec.delivery_date !== deliveryDate
+                   || oldRec.pm_interval_months !== pmInterval
+                   || oldRec.warranty_expiry !== warrantyExpiry;
+        if (changed) {
+          var regen = regeneratePmSchedule(sn, deliveryDate, pmInterval, warrantyExpiry);
+          showToast('success', 'แก้ไขข้อมูลสำเร็จ!', 'S/N: ' + sn + ' — ปรับแผน PM ใหม่ ' + regen.created + ' รายการ' + (regen.removed>0?' (ลบแผนเดิม '+regen.removed+')':''));
+        } else {
+          showToast('success', 'แก้ไขข้อมูลสำเร็จ!', 'S/N: ' + sn);
+        }
       } else {
         DB.insert('delivered_products', record);
 
@@ -6305,6 +6324,7 @@
       }
       closeModal('modal-register-delivered');
       renderDeliveredTable();
+      if (typeof renderPmView === 'function') { var pmView = document.getElementById('view-section-pm'); if (pmView && pmView.classList.contains('active')) renderPmView(); }
       computeNotifications();
     });
 
@@ -6339,6 +6359,21 @@
         current = new Date(current.getFullYear(), current.getMonth() + intervalMonths, 1);
       }
       return count;
+    }
+
+    // ===== Helper: สร้างแผน PM ใหม่ (ตอนแก้ไขข้อมูลส่งมอบ) =====
+    // ลบ PM ที่ยัง pending + ยังไม่มีนัดหมาย ออกก่อน แล้วสร้างใหม่ตาม plan
+    // เก็บ PM ที่ completed แล้ว และ PM ที่มีนัดหมายไว้ (ไม่แตะ)
+    function regeneratePmSchedule(sn, deliveryDateStr, intervalMonths, expiryDateStr) {
+      var removed = 0;
+      DB.getAll('pm_jobs').filter(function(pm) {
+        return pm.sn === sn && pm.status === 'pending' && !pm.appointment_date;
+      }).forEach(function(pm) {
+        DB.delete('pm_jobs', 'id', pm.id);
+        removed++;
+      });
+      var created = generatePmSchedule(sn, deliveryDateStr, intervalMonths, expiryDateStr);
+      return { removed: removed, created: created };
     }
 
     document.getElementById('form-pm-progress').addEventListener('submit', function(e) {
