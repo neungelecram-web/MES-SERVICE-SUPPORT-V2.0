@@ -35,6 +35,7 @@
       </div>
     </div>
     <div style="font-weight:700;color:rgba(255,255,255,.9);font-size:1.05rem;margin-bottom:6px;">ระบบบริหารงานบริการหลังการขาย</div>
+    <div id="login-company-name" style="font-size:.85rem;color:rgba(255,255,255,.6);margin-bottom:4px;font-weight:600;"></div>
     <div style="font-size:.78rem;color:rgba(255,255,255,.4);margin-bottom:28px;">กรุณาเข้าสู่ระบบเพื่อดำเนินการ</div>
     <form id="login-form">
       <div class="form-group" style="text-align:left;">
@@ -95,6 +96,9 @@
         </li>
         <li class="menu-item" data-view="pm" onclick="switchView('pm')">
           <a class="menu-link"><i data-lucide="calendar-check"></i>แผนบำรุงรักษา PM</a>
+        </li>
+        <li class="menu-item" data-view="calendar" onclick="switchView('calendar')">
+          <a class="menu-link"><i data-lucide="calendar-days"></i>ปฏิทินนัดหมาย</a>
         </li>
       </div>
 
@@ -508,6 +512,28 @@
           </div>
         </div>
 
+      </section>
+
+      <!-- ====== CALENDAR (ปฏิทินนัดหมาย) ====== -->
+      <section id="view-section-calendar" class="view-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button class="btn btn-secondary btn-sm btn-icon-only" onclick="calendarPrevMonth()" title="เดือนก่อน"><i data-lucide="chevron-left"></i></button>
+            <h2 id="calendar-title" style="margin:0;font-size:1.2rem;min-width:170px;text-align:center;">—</h2>
+            <button class="btn btn-secondary btn-sm btn-icon-only" onclick="calendarNextMonth()" title="เดือนถัดไป"><i data-lucide="chevron-right"></i></button>
+            <button class="btn btn-outline btn-sm" onclick="calendarToday()"><i data-lucide="calendar-check"></i>วันนี้</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+            <span style="display:flex;align-items:center;gap:5px;font-size:.8rem;"><span style="width:12px;height:12px;border-radius:3px;background:#f59e0b;display:inline-block;"></span>PM</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:.8rem;"><span style="width:12px;height:12px;border-radius:3px;background:#0ea5e9;display:inline-block;"></span>Onsite/Oncall</span>
+            <button class="btn btn-primary btn-sm" onclick="openAppointmentModal()"><i data-lucide="calendar-plus"></i>เพิ่มนัดหมาย</button>
+          </div>
+        </div>
+        <div id="calendar-grid" style="background:var(--bg-card);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-premium);"></div>
+        <div style="margin-top:18px;">
+          <h3 style="font-size:1rem;margin-bottom:10px;display:flex;align-items:center;gap:8px;"><i data-lucide="list" style="width:16px;height:16px;"></i>นัดหมายเดือนนี้</h3>
+          <div id="calendar-list"></div>
+        </div>
       </section>
 
       <!-- ====== DELIVERED ====== -->
@@ -1656,6 +1682,69 @@
   </div>
 </div>
 
+<!-- Modal: เพิ่ม/แก้ไขนัดหมาย -->
+<div class="modal-overlay" id="modal-appointment">
+  <div class="modal-container" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="appt-modal-title"><i data-lucide="calendar-plus"></i> เพิ่มนัดหมาย</h3>
+      <button class="modal-close" onclick="closeModal('modal-appointment')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-appointment">
+        <input type="hidden" id="appt-id">
+        <input type="hidden" id="appt-source">
+        <div class="form-group">
+          <label class="form-label">ประเภทงาน <span style="color:var(--danger)">*</span></label>
+          <select id="appt-type" class="form-control" required onchange="onApptTypeChange()">
+            <option value="pm">งาน PM (บำรุงรักษา)</option>
+            <option value="onsite">งาน Onsite / Oncall</option>
+          </select>
+        </div>
+        <div class="form-group" id="appt-pm-job-group">
+          <label class="form-label">เลือกแผน PM ที่ค้าง</label>
+          <select id="appt-pm-job" class="form-control" onchange="onApptPmJobChange()">
+            <option value="">— เลือกแผน PM —</option>
+          </select>
+          <div style="font-size:.72rem;color:var(--text-muted);margin-top:4px;">เลือกแผน PM ที่ต้องการกำหนดวันนัด หรือเว้นว่างเพื่อสร้างนัดใหม่</div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">วันที่นัด <span style="color:var(--danger)">*</span></label>
+            <input type="date" id="appt-date" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">เวลา</label>
+            <input type="time" id="appt-time" class="form-control" value="09:00">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">ลูกค้า / สถานที่ <span style="color:var(--danger)">*</span></label>
+          <select id="appt-customer" class="form-control" required></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">เครื่องมือ / SN (ถ้ามี)</label>
+          <input type="text" id="appt-sn" class="form-control" placeholder="S/N เครื่องมือ">
+        </div>
+        <div class="form-group">
+          <label class="form-label">มอบหมายช่าง <span style="color:var(--danger)">*</span></label>
+          <select id="appt-assigned" class="form-control" required></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">รายละเอียด / หมายเหตุ</label>
+          <textarea id="appt-note" class="form-control" rows="2" placeholder="เช่น PM ประจำปี, อาการเสีย..."></textarea>
+        </div>
+        <div class="modal-footer" style="justify-content:space-between;">
+          <button type="button" class="btn btn-danger" id="appt-delete-btn" style="display:none;" onclick="deleteAppointment()"><i data-lucide="trash-2"></i>ลบนัด</button>
+          <div style="display:flex;gap:8px;margin-left:auto;">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-appointment')">ยกเลิก</button>
+            <button type="submit" class="btn btn-primary"><i data-lucide="save"></i>บันทึกนัดหมาย</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Master Customer -->
 <div class="modal-overlay" id="modal-my-profile">
   <div class="modal-container" style="max-width:460px;">
@@ -2008,6 +2097,7 @@
 <!-- CDN SCRIPTS -->
 <script src="https://unpkg.com/lucide@latest"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="config.js"></script>
 <script src="db-supabase.js"></script>
 <script src="app.js"></script>
 </body>

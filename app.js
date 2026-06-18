@@ -15,6 +15,12 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     lucide.createIcons();
+    // แสดงชื่อบริษัทจาก config.js (รองรับ multi-company)
+    if (window.MES_CONFIG && window.MES_CONFIG.COMPANY_NAME) {
+      var cn = document.getElementById('login-company-name');
+      if (cn) cn.textContent = window.MES_CONFIG.COMPANY_NAME;
+      document.title = window.MES_CONFIG.COMPANY_NAME + ' — ระบบบริการ';
+    }
     // ตรวจ URL param ?track=JOBID ก่อน — ถ้ามีให้แสดงหน้า tracking (ไม่ต้อง login)
     var params = new URLSearchParams(window.location.search);
     var trackId = params.get('track');
@@ -377,6 +383,7 @@
       case 'onsite': renderOnsiteTable(); break;
       case 'delivered': renderDeliveredTable(); break;
       case 'pm': renderPmView(); break;
+      case 'calendar': renderCalendar(); break;
       case 'warehouse': renderWarehouseView(); break;
       case 'master-customers': renderMasterCustomers(); break;
       case 'master-zones':     renderMasterZones(); break;
@@ -386,6 +393,260 @@
       case 'users': renderUsersTable(); break;
       case 'company': renderCompanyView(); break;
     }
+  }
+
+  // ==================== CALENDAR (ปฏิทินนัดหมาย) ====================
+  var _calYear, _calMonth; // เดือนที่กำลังแสดง (month 0-11)
+
+  // รวบรวมนัดหมายทั้งหมด (PM + Onsite) ที่มีวันที่นัด
+  function gatherAppointments() {
+    var appts = [];
+    var customers = DB.getAll('customers');
+    var products = DB.getAll('products');
+    var delivered = DB.getAll('delivered_products');
+    var users = DB.getAll('users');
+    var currentUser = DB.getCurrentUser();
+    var isEngineer = currentUser.role === 'engineer';
+
+    function custName(id, fallback) { var c = customers.find(function(x){ return x.id===id; }); return c ? c.name : (fallback||'-'); }
+    function userName(id) { var u = users.find(function(x){ return x.id===id; }); return u ? u.fullname : '-'; }
+
+    // PM ที่มี appointment_date
+    DB.getAll('pm_jobs').forEach(function(pm) {
+      if (!pm.appointment_date) return;
+      var dp = delivered.find(function(d){ return d.sn === pm.sn; });
+      var custId = dp ? dp.customer_id : null;
+      var prod = dp ? products.find(function(p){ return p.id===dp.product_id; }) : null;
+      if (isEngineer && pm.assigned_to && pm.assigned_to !== currentUser.id) return;
+      appts.push({
+        source:'pm', id:pm.id, date:pm.appointment_date, time:pm.appointment_time||'',
+        type:'pm', title:'PM: ' + (prod?prod.name:pm.sn),
+        customer:custName(custId, '-'), sn:pm.sn,
+        assigned_to:pm.assigned_to, assignedName:userName(pm.assigned_to),
+        note:pm.appointment_note||'', status:pm.status,
+        color:'#f59e0b'
+      });
+    });
+
+    // Onsite ที่มี appointment_date
+    DB.getAll('onsite_jobs').forEach(function(o) {
+      if (!o.appointment_date) return;
+      if (isEngineer && o.assigned_to !== currentUser.id && o.created_by !== currentUser.id) return;
+      appts.push({
+        source:'onsite', id:o.id, date:o.appointment_date, time:o.appointment_time||'',
+        type:'onsite', title:'Onsite: ' + (o.symptom||o.id).substring(0,30),
+        customer:custName(o.customer_id, o.customer_name), sn:o.sn||'',
+        assigned_to:o.assigned_to, assignedName:userName(o.assigned_to),
+        note:o.appointment_note||o.symptom||'', status:o.status,
+        color:'#0ea5e9'
+      });
+    });
+
+    return appts;
+  }
+
+  window.renderCalendar = function() {
+    var today = new Date();
+    if (_calYear === undefined) { _calYear = today.getFullYear(); _calMonth = today.getMonth(); }
+    var thaiMonths = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+    var titleEl = document.getElementById('calendar-title');
+    if (titleEl) titleEl.textContent = thaiMonths[_calMonth] + ' ' + (_calYear + 543);
+
+    var appts = gatherAppointments();
+    // group ตามวันที่ (YYYY-MM-DD)
+    var byDate = {};
+    appts.forEach(function(a){ (byDate[a.date] = byDate[a.date] || []).push(a); });
+
+    var firstDay = new Date(_calYear, _calMonth, 1).getDay(); // 0=อาทิตย์
+    var daysInMonth = new Date(_calYear, _calMonth+1, 0).getDate();
+    var todayStr = today.toISOString().substring(0,10);
+
+    var dayNames = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+    var html = '<div style="display:grid;grid-template-columns:repeat(7,1fr);">';
+    // หัวตาราง
+    dayNames.forEach(function(d, i) {
+      var c = i===0?'#dc2626':(i===6?'#2563eb':'#475569');
+      html += '<div style="padding:10px;text-align:center;font-weight:700;font-size:.82rem;color:'+c+';background:rgba(0,0,0,.02);border-bottom:1px solid var(--border-color);">'+d+'</div>';
+    });
+    // ช่องว่างก่อนวันที่ 1
+    for (var b=0; b<firstDay; b++) html += '<div style="min-height:96px;border:1px solid var(--border-color);background:rgba(0,0,0,.01);"></div>';
+    // วันที่
+    for (var d=1; d<=daysInMonth; d++) {
+      var dateStr = _calYear + '-' + String(_calMonth+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+      var dayAppts = byDate[dateStr] || [];
+      var isToday = dateStr === todayStr;
+      var dow = (firstDay + d - 1) % 7;
+      var dateColor = dow===0?'#dc2626':(dow===6?'#2563eb':'#0f172a');
+      html += '<div onclick="openAppointmentModal(null,null,\''+dateStr+'\')" style="min-height:96px;border:1px solid var(--border-color);padding:5px 6px;cursor:pointer;position:relative;'+(isToday?'background:rgba(99,102,241,.06);':'')+'" onmouseover="this.style.background=\'rgba(99,102,241,.04)\'" onmouseout="this.style.background=\''+(isToday?'rgba(99,102,241,.06)':'transparent')+'\'">';
+      html += '<div style="font-size:.8rem;font-weight:'+(isToday?'800':'600')+';color:'+(isToday?'#4f46e5':dateColor)+';margin-bottom:3px;">'+(isToday?'<span style="background:#4f46e5;color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:.72rem;">'+d+'</span>':d)+'</div>';
+      dayAppts.slice(0,3).forEach(function(a) {
+        html += '<div onclick="event.stopPropagation();openAppointmentModal(\''+a.source+'\',\''+a.id+'\')" style="background:'+a.color+';color:#fff;border-radius:4px;padding:2px 5px;font-size:.66rem;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;" title="'+a.title+' — '+a.customer+'">'+(a.time?a.time.substring(0,5)+' ':'')+a.title+'</div>';
+      });
+      if (dayAppts.length > 3) html += '<div style="font-size:.62rem;color:var(--text-muted);font-weight:600;">+'+(dayAppts.length-3)+' เพิ่มเติม</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+    var grid = document.getElementById('calendar-grid');
+    if (grid) grid.innerHTML = html;
+
+    // รายการนัดหมายเดือนนี้ (เรียงตามวันเวลา)
+    var monthPrefix = _calYear + '-' + String(_calMonth+1).padStart(2,'0');
+    var monthAppts = appts.filter(function(a){ return a.date.indexOf(monthPrefix)===0; })
+      .sort(function(x,y){ return (x.date+x.time).localeCompare(y.date+y.time); });
+    var listEl = document.getElementById('calendar-list');
+    if (listEl) {
+      if (monthAppts.length === 0) {
+        listEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);background:var(--bg-card);border-radius:var(--radius-md);">ยังไม่มีนัดหมายในเดือนนี้</div>';
+      } else {
+        listEl.innerHTML = monthAppts.map(function(a) {
+          var dObj = new Date(a.date);
+          var dd = dObj.getDate() + ' ' + thaiMonths[dObj.getMonth()].substring(0,3);
+          var typeLabel = a.type==='pm'?'PM':'Onsite';
+          return '<div onclick="openAppointmentModal(\''+a.source+'\',\''+a.id+'\')" style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg-card);border-radius:var(--radius-md);margin-bottom:6px;cursor:pointer;border-left:3px solid '+a.color+';box-shadow:var(--shadow-sm);">' +
+            '<div style="text-align:center;min-width:48px;"><div style="font-size:.95rem;font-weight:800;color:'+a.color+';">'+dObj.getDate()+'</div><div style="font-size:.66rem;color:var(--text-muted);">'+thaiMonths[dObj.getMonth()].substring(0,3)+'</div></div>' +
+            '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:.85rem;">'+a.title+'</div><div style="font-size:.75rem;color:var(--text-muted);">'+(a.time?'🕐 '+a.time.substring(0,5)+' · ':'')+'📍 '+a.customer+'</div></div>' +
+            '<div style="text-align:right;"><span class="badge" style="background:'+a.color+'18;color:'+a.color+';">'+typeLabel+'</span><div style="font-size:.7rem;color:var(--text-muted);margin-top:3px;">👤 '+a.assignedName.replace('วิศวกร ','')+'</div></div>' +
+          '</div>';
+        }).join('');
+      }
+    }
+    lucide.createIcons();
+  };
+
+  window.calendarPrevMonth = function() { _calMonth--; if (_calMonth<0){_calMonth=11;_calYear--;} renderCalendar(); };
+  window.calendarNextMonth = function() { _calMonth++; if (_calMonth>11){_calMonth=0;_calYear++;} renderCalendar(); };
+  window.calendarToday = function() { var t=new Date(); _calYear=t.getFullYear(); _calMonth=t.getMonth(); renderCalendar(); };
+
+  // เปิด modal นัดหมาย — (source,id) = แก้ไขนัดเดิม / (null,null,date) = เพิ่มใหม่ที่วันที่ระบุ
+  window.openAppointmentModal = function(source, id, presetDate) {
+    var customers = DB.getAll('customers');
+    var users = DB.getAll('users').filter(function(u){ return u.role==='engineer'; });
+
+    // เติม dropdown ลูกค้า + ช่าง
+    var custSel = document.getElementById('appt-customer');
+    custSel.innerHTML = '<option value="">— เลือกลูกค้า —</option>' + customers.map(function(c){ return '<option value="'+c.id+'">'+c.name+'</option>'; }).join('');
+    var engSel = document.getElementById('appt-assigned');
+    engSel.innerHTML = '<option value="">— เลือกช่าง —</option>' + users.map(function(u){ return '<option value="'+u.id+'">'+u.fullname+(u.zone?' ('+u.zone+')':'')+'</option>'; }).join('');
+
+    // เติม dropdown แผน PM ที่ยังไม่มีนัด/ค้าง
+    var pmSel = document.getElementById('appt-pm-job');
+    var delivered = DB.getAll('delivered_products');
+    var products = DB.getAll('products');
+    var pendingPms = DB.getAll('pm_jobs').filter(function(p){ return p.status==='pending'; });
+    pmSel.innerHTML = '<option value="">— สร้างนัดใหม่ —</option>' + pendingPms.map(function(p){
+      var dp = delivered.find(function(d){ return d.sn===p.sn; });
+      var prod = dp ? products.find(function(x){ return x.id===dp.product_id; }) : null;
+      return '<option value="'+p.id+'">'+p.sn+' · '+(prod?prod.name:'-')+' ('+p.scheduled_month+')</option>';
+    }).join('');
+
+    document.getElementById('form-appointment').reset();
+    document.getElementById('appt-id').value = '';
+    document.getElementById('appt-source').value = '';
+    document.getElementById('appt-delete-btn').style.display = 'none';
+    document.getElementById('appt-time').value = '09:00';
+
+    if (source && id) {
+      // โหมดแก้ไข
+      var rec = DB.find(source==='pm'?'pm_jobs':'onsite_jobs','id',id);
+      if (rec) {
+        document.getElementById('appt-modal-title').innerHTML = '<i data-lucide="calendar-clock"></i> แก้ไขนัดหมาย';
+        document.getElementById('appt-id').value = id;
+        document.getElementById('appt-source').value = source;
+        document.getElementById('appt-type').value = source;
+        document.getElementById('appt-date').value = rec.appointment_date || '';
+        document.getElementById('appt-time').value = rec.appointment_time || '09:00';
+        document.getElementById('appt-sn').value = rec.sn || '';
+        document.getElementById('appt-assigned').value = rec.assigned_to || '';
+        document.getElementById('appt-note').value = rec.appointment_note || rec.symptom || '';
+        if (source==='pm') {
+          var dp2 = delivered.find(function(d){ return d.sn===rec.sn; });
+          if (dp2) document.getElementById('appt-customer').value = dp2.customer_id;
+          document.getElementById('appt-pm-job').value = id;
+        } else {
+          document.getElementById('appt-customer').value = rec.customer_id || '';
+        }
+        document.getElementById('appt-delete-btn').style.display = 'inline-flex';
+      }
+    } else {
+      document.getElementById('appt-modal-title').innerHTML = '<i data-lucide="calendar-plus"></i> เพิ่มนัดหมาย';
+      document.getElementById('appt-type').value = 'pm';
+      if (presetDate) document.getElementById('appt-date').value = presetDate;
+    }
+    onApptTypeChange();
+    openModal('modal-appointment');
+    lucide.createIcons();
+  };
+
+  window.onApptTypeChange = function() {
+    var type = document.getElementById('appt-type').value;
+    document.getElementById('appt-pm-job-group').style.display = type==='pm' ? 'block' : 'none';
+  };
+
+  // เมื่อเลือกแผน PM → auto เติมลูกค้า + SN
+  window.onApptPmJobChange = function() {
+    var pmId = document.getElementById('appt-pm-job').value;
+    if (!pmId) return;
+    var pm = DB.find('pm_jobs','id',pmId);
+    if (!pm) return;
+    var dp = DB.find('delivered_products','sn',pm.sn);
+    document.getElementById('appt-sn').value = pm.sn || '';
+    if (dp) document.getElementById('appt-customer').value = dp.customer_id;
+  };
+
+  window.deleteAppointment = function() {
+    var id = document.getElementById('appt-id').value;
+    var source = document.getElementById('appt-source').value;
+    if (!id || !source) return;
+    if (!confirm('ยืนยันลบนัดหมายนี้?\n\n(ข้อมูลงานยังอยู่ แต่จะล้างวันเวลานัด)')) return;
+    if (source === 'pm') {
+      DB.update('pm_jobs','id',id,{ appointment_date:null, appointment_time:null, appointment_note:null, assigned_to:null });
+    } else {
+      DB.update('onsite_jobs','id',id,{ appointment_date:null, appointment_time:null, appointment_note:null });
+    }
+    showToast('success','ลบนัดหมายแล้ว','');
+    closeModal('modal-appointment');
+    renderCalendar(); computeNotifications();
+  };
+
+  function setupAppointmentForm() {
+    var form = document.getElementById('form-appointment');
+    if (!form) return;
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var type = document.getElementById('appt-type').value;
+      var date = document.getElementById('appt-date').value;
+      var time = document.getElementById('appt-time').value;
+      var custId = document.getElementById('appt-customer').value;
+      var sn = document.getElementById('appt-sn').value.trim();
+      var assigned = document.getElementById('appt-assigned').value;
+      var note = document.getElementById('appt-note').value.trim();
+      if (!date || !custId || !assigned) { showToast('warning','กรอกข้อมูลไม่ครบ','ระบุวันที่ ลูกค้า และช่าง'); return; }
+
+      if (type === 'pm') {
+        var pmId = document.getElementById('appt-pm-job').value;
+        if (pmId) {
+          // กำหนดวันนัดให้แผน PM ที่มีอยู่
+          DB.update('pm_jobs','id',pmId,{ appointment_date:date, appointment_time:time, appointment_note:note, assigned_to:assigned });
+        } else {
+          // สร้างแผน PM ใหม่พร้อมวันนัด
+          var newId = 'PM' + Date.now().toString().slice(-8);
+          DB.insert('pm_jobs',{ id:newId, sn:sn, scheduled_month:date.substring(0,7), status:'pending', appointment_date:date, appointment_time:time, appointment_note:note, assigned_to:assigned });
+        }
+      } else {
+        var oId = document.getElementById('appt-id').value;
+        if (oId) {
+          DB.update('onsite_jobs','id',oId,{ appointment_date:date, appointment_time:time, appointment_note:note, assigned_to:assigned, customer_id:custId, sn:sn });
+        } else {
+          // สร้างงาน Onsite ใหม่พร้อมวันนัด
+          var cust = DB.find('customers','id',custId);
+          var newOid = DB.generateJobId('MESSJ');
+          DB.insert('onsite_jobs',{ id:newOid, sn:sn, customer_id:custId, customer_name:cust?cust.name:'', symptom:note, assigned_to:assigned, type:'onsite', status:'assigned', appointment_date:date, appointment_time:time, appointment_note:note, created_by:DB.getCurrentUser().id, created_at:new Date().toISOString().replace('T',' ').substring(0,19), timestamps:{}, step_actors:{} });
+        }
+      }
+      showToast('success','บันทึกนัดหมายสำเร็จ', date + (time?' '+time:''));
+      closeModal('modal-appointment');
+      renderCalendar(); computeNotifications();
+    });
   }
 
   // ==================== NOTIFICATIONS ====================
@@ -537,6 +798,37 @@
             time:'งานที่ได้รับมอบหมาย', jobId: job.id
           });
         }
+      });
+
+      // ── แจ้งเตือนนัดหมายใกล้ถึง (ภายใน 3 วัน) ที่มอบหมายให้ช่างคนนี้ ──
+      var now2 = new Date(); now2.setHours(0,0,0,0);
+      function daysUntil(dateStr) {
+        var d = new Date(dateStr); d.setHours(0,0,0,0);
+        return Math.round((d - now2) / 86400000);
+      }
+      function apptReminder(rec, source, label, custName) {
+        if (!rec.appointment_date) return;
+        if (rec.assigned_to !== currentUser.id) return;
+        if (source === 'pm' && rec.status === 'completed') return;
+        if (source === 'onsite' && rec.status === 'closed') return;
+        var dleft = daysUntil(rec.appointment_date);
+        if (dleft < 0 || dleft > 3) return; // เฉพาะวันนี้ถึงอีก 3 วัน
+        var whenTxt = dleft === 0 ? 'วันนี้!' : (dleft === 1 ? 'พรุ่งนี้' : 'อีก ' + dleft + ' วัน');
+        notifications.push({
+          type: dleft === 0 ? 'danger' : 'warning', category:'newjob', icon:'calendar-clock',
+          title:'📅 นัด' + label + ' ' + whenTxt,
+          body: custName + ' · ' + rec.appointment_date + (rec.appointment_time ? ' ' + rec.appointment_time.substring(0,5) : ''),
+          time: whenTxt, jobId: rec.id
+        });
+      }
+      DB.getAll('pm_jobs').forEach(function(pm) {
+        var dp = delivered.find(function(d){ return d.sn===pm.sn; });
+        var c = dp ? customers.find(function(x){ return x.id===dp.customer_id; }) : null;
+        apptReminder(pm, 'pm', 'PM', c ? c.name : pm.sn);
+      });
+      onsites.forEach(function(o) {
+        var c = customers.find(function(x){ return x.id===o.customer_id; });
+        apptReminder(o, 'onsite', 'Onsite', c ? c.name : (o.customer_name||'-'));
       });
     }
 
@@ -5885,6 +6177,7 @@
   // ==================== FORM LISTENERS ====================
   function setupFormListeners() {
     setupProfileForm();
+    setupAppointmentForm();
 
     document.getElementById('form-register-repair').addEventListener('submit', function(e) {
       e.preventDefault();
