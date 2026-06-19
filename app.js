@@ -3280,6 +3280,21 @@
     // --- Current month PM ---
     var monthList = allBase.filter(function(pm){ return pm.scheduled_month === ym; });
 
+    // --- Upcoming: pending PM ในเดือนถัดๆ ไป (อนาคต) ---
+    var upcoming = allBase.filter(function(pm){ return pm.status==='pending' && pm.scheduled_month > ym; })
+      .sort(function(a,b){ return a.scheduled_month.localeCompare(b.scheduled_month); });
+    var upcomingSection = document.getElementById('pm-upcoming-section');
+    if (upcomingSection) {
+      if (upcoming.length > 0) {
+        upcomingSection.style.display = 'block';
+        document.getElementById('pm-upcoming-label').textContent =
+          'มีแผน PM ที่กำลังจะถึงในเดือนถัดไป จำนวน ' + upcoming.length + ' รายการ';
+        renderPmUpcomingTable(upcoming, delivered, products, customers, users);
+      } else {
+        upcomingSection.style.display = 'none';
+      }
+    }
+
     // --- Summary cards ---
     var totalMonth   = monthList.length;
     var doneMonth    = monthList.filter(function(p){ return p.status==='completed'; }).length;
@@ -3356,6 +3371,45 @@
     }).join('');
     lucide.createIcons();
   }
+
+  function renderPmUpcomingTable(upcoming, delivered, products, customers, users) {
+    var tbody = document.getElementById('body-pm-upcoming');
+    if (!tbody) return;
+    var currentUser = DB.getCurrentUser();
+    var isPrivileged = ['manager','supervisor'].includes(currentUser.role);
+
+    tbody.innerHTML = upcoming.map(function(pm) {
+      var dp   = delivered.find(function(d){ return d.sn===pm.sn; });
+      var prod = dp ? products.find(function(p){ return p.id===dp.product_id; }) : null;
+      var cust = dp ? customers.find(function(c){ return c.id===dp.customer_id; }) : null;
+      var eng  = pm.assigned_to ? users.find(function(u){ return u.id===pm.assigned_to; }) : null;
+      var engHtml = eng ? eng.fullname.replace('วิศวกร ','') : '<span style="color:var(--danger);font-size:.78rem;">ยังไม่มอบหมาย</span>';
+      var jumpBtn = '<button class="btn btn-outline btn-sm" onclick="pmJumpToMonth(\'' + pm.scheduled_month + '\')" title="ไปเดือนนี้"><i data-lucide="arrow-right"></i>ดูเดือนนี้</button>';
+      var reassignBtn = isPrivileged ? '<button class="btn btn-warning btn-xs btn-icon-only" onclick="openReassignModal(\'' + pm.id + '\',\'pm_jobs\')" title="มอบหมาย"><i data-lucide="user-check"></i></button>' : '';
+      return '<tr>' +
+        '<td class="job-item-id" style="color:var(--primary);">' + pm.id + '</td>' +
+        '<td><strong style="color:var(--primary);">' + pm.sn + '</strong></td>' +
+        '<td style="font-size:.85rem;">' + (prod?prod.name.substring(0,20)+'...':'-') + '</td>' +
+        '<td style="font-size:.85rem;">' + (cust?cust.name.substring(0,20)+'...':'-') + '</td>' +
+        '<td><span class="badge badge-registered">' + pmYMLabel(pm.scheduled_month) + '</span></td>' +
+        '<td style="font-size:.82rem;">' + engHtml + '</td>' +
+        '<td><div style="display:flex;gap:5px;">' + jumpBtn + reassignBtn + '</div></td>' +
+        '</tr>';
+    }).join('');
+    lucide.createIcons();
+  }
+
+  window.toggleUpcomingTable = function() {
+    var wrap = document.getElementById('pm-upcoming-table-wrap');
+    var icon = document.getElementById('pm-upcoming-toggle-icon');
+    var btn  = document.getElementById('pm-upcoming-toggle-btn');
+    if (!wrap) return;
+    var show = wrap.style.display === 'none';
+    wrap.style.display = show ? 'block' : 'none';
+    if (icon) icon.setAttribute('data-lucide', show ? 'chevron-up' : 'chevron-down');
+    if (btn) btn.innerHTML = '<i data-lucide="' + (show?'chevron-up':'chevron-down') + '" id="pm-upcoming-toggle-icon"></i>' + (show?'ซ่อนรายการ':'แสดงรายการ');
+    lucide.createIcons();
+  };
 
   function renderPmTable(list) {
     var currentUser = DB.getCurrentUser();

@@ -481,6 +481,37 @@
           </div>
         </div>
 
+        <!-- Upcoming PM (PM ที่กำลังจะถึง — ทุกเดือนในอนาคต) -->
+        <div id="pm-upcoming-section" style="display:none;margin-bottom:20px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:8px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:var(--radius-md);padding:10px 16px;">
+              <i data-lucide="calendar-clock" style="width:16px;height:16px;color:var(--primary);"></i>
+              <span id="pm-upcoming-label" style="font-size:.875rem;font-weight:700;color:var(--primary);"></span>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="toggleUpcomingTable()" id="pm-upcoming-toggle-btn">
+              <i data-lucide="chevron-down" id="pm-upcoming-toggle-icon"></i>แสดงรายการ
+            </button>
+          </div>
+          <div id="pm-upcoming-table-wrap" style="display:none;">
+            <div class="table-responsive">
+              <table class="custom-table">
+                <thead>
+                  <tr style="background:rgba(99,102,241,.04);">
+                    <th style="color:var(--primary);">รหัสแผน PM</th>
+                    <th>Serial Number</th>
+                    <th>สินค้า</th>
+                    <th>โรงพยาบาล</th>
+                    <th>เดือนที่กำหนด</th>
+                    <th>ผู้รับผิดชอบ</th>
+                    <th>จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody id="body-pm-upcoming"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <!-- Current Month PM Table -->
         <div class="panel" style="margin-bottom:0;">
           <div class="panel-header">
