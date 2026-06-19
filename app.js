@@ -3027,8 +3027,12 @@
     var users = DB.getAll('users');
     var pTbody = document.getElementById('dh-pm-tbody');
     document.getElementById('dh-pm-count').textContent = pmJobs.length + ' รายการ';
+    var cu = DB.getCurrentUser();
+    var canGen = ['manager','supervisor','admin'].includes(cu.role);
     pTbody.innerHTML = pmJobs.length === 0
-      ? '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:20px;">ไม่มีแผน PM</td></tr>'
+      ? '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:20px;">ยังไม่มีแผน PM' +
+        (canGen ? '<br><button class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="backfillPmForDevice(\'' + sn + '\')"><i data-lucide="calendar-plus"></i>สร้างแผน PM ย้อนหลัง</button>' : '') +
+        '</td></tr>'
       : pmJobs.map(function(p){
           var eng = p.completed_by ? users.find(function(u){ return u.id === p.completed_by; }) : null;
           return '<tr><td class="job-item-id">' + p.id + '</td>' +
@@ -3144,6 +3148,35 @@
       ? '<i data-lucide="chevron-down" id="pm-overdue-toggle-icon"></i>แสดงรายการ'
       : '<i data-lucide="chevron-up" id="pm-overdue-toggle-icon"></i>ซ่อนรายการ';
     lucide.createIcons();
+  };
+
+  // สร้างแผน PM ย้อนหลังสำหรับเครื่องที่ยังไม่มี PM (module-level — เรียกจากหน้าประวัติเครื่อง)
+  window.backfillPmForDevice = function(sn) {
+    var dp = DB.find('delivered_products','sn',sn);
+    if (!dp) { showToast('danger','ไม่พบข้อมูลเครื่อง',''); return; }
+    var start = new Date(dp.delivery_date);
+    if (isNaN(start.getTime())) { showToast('danger','วันส่งมอบไม่ถูกต้อง',''); return; }
+    var interval = parseInt(dp.pm_interval_months,10); if (isNaN(interval)||interval<1) interval = 6;
+    var expiry = new Date(dp.warranty_expiry);
+    if (!dp.warranty_expiry || isNaN(expiry.getTime())) {
+      var yrs = parseInt(dp.warranty_years,10) || 1;
+      expiry = new Date(start.getFullYear()+yrs, start.getMonth(), start.getDate());
+    }
+    var zoneEng = zoneEngineerForSn(sn);
+    var count = 0;
+    var current = new Date(start.getFullYear(), start.getMonth() + interval, 1);
+    while (current <= expiry) {
+      var ym = current.getFullYear() + '-' + String(current.getMonth()+1).padStart(2,'0');
+      var pmId = 'PM-' + sn + '-' + ym;
+      if (!DB.find('pm_jobs','id',pmId)) {
+        DB.insert('pm_jobs',{ id:pmId, sn:sn, scheduled_month:ym, status:'pending', assigned_to:zoneEng||null, report_file:null, completed_at:null, completed_by:null });
+        count++;
+      }
+      current = new Date(current.getFullYear(), current.getMonth() + interval, 1);
+    }
+    showToast('success','สร้างแผน PM สำเร็จ','S/N: ' + sn + ' — ' + count + ' รายการ' + (zoneEng?' (มอบหมายวิศวกรประจำเขตแล้ว)':''));
+    openDeviceHistory(sn); // refresh
+    computeNotifications();
   };
 
   // หาวิศวกรประจำเขตของ SN (ใช้ได้ทุก scope)
@@ -6353,7 +6386,7 @@
                    || oldRec.pm_interval_months !== pmInterval
                    || oldRec.warranty_expiry !== warrantyExpiry;
         if (changed) {
-          var regen = regeneratePmSchedule(sn, deliveryDate, pmInterval, warrantyExpiry);
+          var regen = regeneratePmSchedule(sn, deliveryDate, pmInterval, warrantyExpiry, record.warranty_years);
           showToast('success', 'แก้ไขข้อมูลสำเร็จ!', 'S/N: ' + sn + ' — ปรับแผน PM ใหม่ ' + regen.created + ' รายการ' + (regen.removed>0?' (ลบแผนเดิม '+regen.removed+')':''));
         } else {
           showToast('success', 'แก้ไขข้อมูลสำเร็จ!', 'S/N: ' + sn);
@@ -6362,7 +6395,7 @@
         DB.insert('delivered_products', record);
 
         // ===== สร้างแผน PM ทุกรอบ จากวันส่งมอบ + interval จนถึงวันหมดประกัน =====
-        var pmCount = generatePmSchedule(sn, deliveryDate, pmInterval, warrantyExpiry);
+        var pmCount = generatePmSchedule(sn, deliveryDate, pmInterval, warrantyExpiry, record.warranty_years);
         showToast('success',
           'ลงทะเบียนส่งมอบสำเร็จ!',
           'S/N: ' + sn + ' — สร้างแผน PM ' + pmCount + ' รายการ'
@@ -6375,12 +6408,24 @@
     });
 
     // ===== Helper: สร้างแผน PM ครบทุกรอบ =====
-    function generatePmSchedule(sn, deliveryDateStr, intervalMonths, expiryDateStr) {
+    function generatePmSchedule(sn, deliveryDateStr, intervalMonths, expiryDateStr, warrantyYears) {
       // เริ่ม PM รอบแรกจาก delivery + interval เดือน
       var start  = new Date(deliveryDateStr);
       var expiry = new Date(expiryDateStr);
+      // ป้องกัน expiry ว่าง/ผิด → คำนวณจากวันส่งมอบ + จำนวนปีประกัน (สำรอง)
+      if (!expiryDateStr || isNaN(expiry.getTime())) {
+        var yrs = parseInt(warrantyYears, 10) || 1;
+        expiry = new Date(start.getFullYear() + yrs, start.getMonth(), start.getDate());
+      }
       var count  = 0;
       var zoneEngineer = zoneEngineerForSn(sn); // วิศวกรประจำเขต (ค่าเริ่มต้น)
+
+      // ตรวจสอบ interval ปลอดภัย (กันค่า NaN)
+      intervalMonths = parseInt(intervalMonths, 10);
+      if (isNaN(intervalMonths) || intervalMonths < 1) intervalMonths = 6;
+
+      // ตรวจสอบ start date ปลอดภัย
+      if (isNaN(start.getTime())) { console.error('[PM] วันส่งมอบไม่ถูกต้อง:', deliveryDateStr); return 0; }
 
       // เดิน loop เพิ่มทีละ interval เดือน จนเกินวันหมดประกัน
       var current = new Date(start.getFullYear(), start.getMonth() + intervalMonths, 1);
@@ -6412,7 +6457,7 @@
     // ===== Helper: สร้างแผน PM ใหม่ (ตอนแก้ไขข้อมูลส่งมอบ) =====
     // ลบ PM ที่ยัง pending + ยังไม่มีนัดหมาย ออกก่อน แล้วสร้างใหม่ตาม plan
     // เก็บ PM ที่ completed แล้ว และ PM ที่มีนัดหมายไว้ (ไม่แตะ)
-    function regeneratePmSchedule(sn, deliveryDateStr, intervalMonths, expiryDateStr) {
+    function regeneratePmSchedule(sn, deliveryDateStr, intervalMonths, expiryDateStr, warrantyYears) {
       var removed = 0;
       DB.getAll('pm_jobs').filter(function(pm) {
         return pm.sn === sn && pm.status === 'pending' && !pm.appointment_date;
@@ -6420,7 +6465,7 @@
         DB.delete('pm_jobs', 'id', pm.id);
         removed++;
       });
-      var created = generatePmSchedule(sn, deliveryDateStr, intervalMonths, expiryDateStr);
+      var created = generatePmSchedule(sn, deliveryDateStr, intervalMonths, expiryDateStr, warrantyYears);
       return { removed: removed, created: created };
     }
 
