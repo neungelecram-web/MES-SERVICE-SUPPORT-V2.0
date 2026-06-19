@@ -3146,6 +3146,39 @@
     lucide.createIcons();
   };
 
+  // หาวิศวกรประจำเขตของ SN (ใช้ได้ทุก scope)
+  function zoneEngineerForSn(sn) {
+    var dp = DB.find('delivered_products','sn',sn);
+    if (!dp) return '';
+    var cust = DB.find('customers','id',dp.customer_id);
+    if (!cust || !cust.zone) return '';
+    var zoneEng = DB.getAll('users').find(function(u){ return u.role==='engineer' && u.zone===cust.zone; });
+    if (zoneEng) return zoneEng.id;
+    var zones = DB.getAll('sales_zones');
+    for (var i=0;i<zones.length;i++) {
+      if (zones[i].provinces && zones[i].provinces.indexOf(cust.province) !== -1 && zones[i].engineer_id) {
+        return zones[i].engineer_id;
+      }
+    }
+    return '';
+  }
+
+  // จับคู่วิศวกรประจำเขตให้ PM ที่ยังไม่มีผู้รับผิดชอบ (สำหรับ PM เก่า)
+  window.assignZoneEngineersToPm = function() {
+    var pending = DB.getAll('pm_jobs').filter(function(pm){ return pm.status!=='completed' && !pm.assigned_to; });
+    if (pending.length === 0) { showToast('info','ไม่มี PM ที่ต้องจับคู่','PM ทั้งหมดมีผู้รับผิดชอบแล้ว'); return; }
+    var assigned = 0, noEngineer = 0;
+    pending.forEach(function(pm) {
+      var eng = zoneEngineerForSn(pm.sn);
+      if (eng) { DB.update('pm_jobs','id',pm.id,{ assigned_to:eng }); assigned++; }
+      else noEngineer++;
+    });
+    var msg = 'จับคู่สำเร็จ ' + assigned + ' รายการ';
+    if (noEngineer > 0) msg += ' · ไม่พบวิศวกรประจำเขต ' + noEngineer + ' รายการ';
+    showToast('success','จับคู่วิศวกรประจำเขตเสร็จ', msg);
+    renderPmView(); computeNotifications();
+  };
+
   function getPmBaseList() {
     var currentUser = DB.getCurrentUser();
     var isEngineer = currentUser.role === 'engineer';
@@ -3188,6 +3221,14 @@
     var products  = DB.getAll('products');
     var customers = DB.getAll('customers');
     var users     = DB.getAll('users');
+
+    // ปุ่มจับคู่วิศวกรประจำเขต — เฉพาะ manager/supervisor และมี PM ที่ยังไม่มีผู้รับผิดชอบ
+    var assignBtn = document.getElementById('pm-assign-zone-btn');
+    if (assignBtn) {
+      var cu = DB.getCurrentUser();
+      var unassignedCount = DB.getAll('pm_jobs').filter(function(pm){ return pm.status!=='completed' && !pm.assigned_to; }).length;
+      assignBtn.style.display = (['manager','supervisor'].includes(cu.role) && unassignedCount > 0) ? 'inline-flex' : 'none';
+    }
 
     // --- Overdue: pending PM from BEFORE this month ---
     var overdue = allBase.filter(function(pm){ return pm.status==='pending' && pm.scheduled_month < ym; });
@@ -3295,7 +3336,7 @@
     body.innerHTML = '';
 
     if (!list || list.length === 0) {
-      body.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:40px;">' +
+      body.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:40px;">' +
         '<div style="font-size:2rem;margin-bottom:8px;">📅</div>' +
         '<div style="font-weight:600;">ไม่มีแผน PM ในเดือนนี้</div>' +
         '<div style="font-size:.8rem;margin-top:4px;">ลองเปลี่ยนเดือน หรือตรวจสอบรอบ PM ของเครื่องที่ส่งมอบ</div>' +
@@ -3314,6 +3355,10 @@
         ? (canEdit ? '<button class="btn btn-success btn-sm" onclick="openPmProgressModal(\'' + pm.id + '\')"><i data-lucide="check"></i>บันทึก PM</button>' : '<span style="font-size:.72rem;color:var(--text-muted);">ไม่มีสิทธิ์</span>')
         : '<span style="color:var(--success);font-size:.8rem;font-weight:700;">✓ ' + (pm.completed_at||'') + '</span>';
       var reassignBtn = isPrivileged ? '<button class="btn btn-warning btn-xs btn-icon-only" onclick="openReassignModal(\'' + pm.id + '\',\'pm_jobs\')" title="มอบหมายช่าง"><i data-lucide="user-check"></i></button>' : '';
+      var assignedEng = pm.assigned_to ? users.find(function(u){ return u.id===pm.assigned_to; }) : null;
+      var assignedHtml = assignedEng
+        ? '<span style="font-size:.8rem;font-weight:600;">' + assignedEng.fullname.replace('วิศวกร ','') + '</span>'
+        : '<span style="font-size:.75rem;color:var(--danger);font-weight:600;">⚠ ยังไม่มอบหมาย</span>';
       var dept = dp ? (dp.department || '-') : '-';
       var tr = document.createElement('tr');
       tr.innerHTML =
@@ -3323,6 +3368,7 @@
         '<td style="font-size:.85rem;">' + (cust?cust.name.substring(0,22)+'...':'-') + '</td>' +
         '<td style="font-size:.82rem;color:var(--text-secondary);">' + dept + '</td>' +
         '<td>' + (dp?'ทุก '+dp.pm_interval_months+' เดือน':'-') + '</td>' +
+        '<td>' + assignedHtml + '</td>' +
         '<td style="font-size:.82rem;">' + (completedBy?completedBy.fullname.replace('วิศวกร ',''):'-') + '</td>' +
         '<td>' + (pm.report_file?'<a href="#" style="font-size:.75rem;color:var(--primary);"><i data-lucide="file" style="width:10px;display:inline;vertical-align:middle;"></i> '+pm.report_file+'</a>':'<span style="color:var(--text-muted);font-size:.75rem;">-</span>') + '</td>' +
         '<td><span class="badge badge-' + pm.status + '">' + (pm.status==='completed'?'เสร็จสิ้น':'ค้างอยู่') + '</span></td>' +
@@ -6334,6 +6380,7 @@
       var start  = new Date(deliveryDateStr);
       var expiry = new Date(expiryDateStr);
       var count  = 0;
+      var zoneEngineer = zoneEngineerForSn(sn); // วิศวกรประจำเขต (ค่าเริ่มต้น)
 
       // เดิน loop เพิ่มทีละ interval เดือน จนเกินวันหมดประกัน
       var current = new Date(start.getFullYear(), start.getMonth() + intervalMonths, 1);
@@ -6348,6 +6395,7 @@
             sn:              sn,
             scheduled_month: ym,
             status:          'pending',
+            assigned_to:     zoneEngineer || null,  // จับคู่วิศวกรประจำเขตอัตโนมัติ
             report_file:     null,
             completed_at:    null,
             completed_by:    null

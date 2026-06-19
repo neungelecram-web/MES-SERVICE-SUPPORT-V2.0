@@ -433,6 +433,9 @@
             </button>
           </div>
           <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn btn-outline btn-sm" id="pm-assign-zone-btn" onclick="assignZoneEngineersToPm()" style="display:none;" title="จับคู่วิศวกรประจำเขตให้ PM ที่ยังไม่มีผู้รับผิดชอบ">
+              <i data-lucide="user-check"></i>จับคู่วิศวกรประจำเขต
+            </button>
             <input type="month" id="pm-month-picker" class="form-control" style="min-width:170px;" onchange="pmJumpToMonth(this.value)">
             <select id="pm-filter-status" class="form-control" onchange="filterPmTable()" style="min-width:160px;">
               <option value="">สถานะทั้งหมด</option>
@@ -501,6 +504,7 @@
                   <th>โรงพยาบาล</th>
                   <th>แผนก</th>
                   <th>รอบ PM</th>
+                  <th>ผู้รับผิดชอบ</th>
                   <th>ผู้ปิดงาน</th>
                   <th>เอกสาร</th>
                   <th>สถานะ</th>
