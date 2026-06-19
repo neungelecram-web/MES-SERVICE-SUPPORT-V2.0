@@ -3220,9 +3220,8 @@
     if (isEngineer) {
       var myCusts = DB.getAll('customers').filter(function(c){ return c.zone===currentUser.zone; }).map(function(c){ return c.id; });
       all = all.filter(function(pm){
-        // ถ้า PM ถูก assign ให้ช่างคนใดคนหนึ่งแล้ว → เห็นเฉพาะคนนั้น
-        if (pm.assigned_to) return pm.assigned_to === currentUser.id;
-        // ถ้ายังไม่ได้ assign → เห็นตามเขตที่รับผิดชอบ
+        // เห็นถ้า: PM ถูก assign ให้ตัวเอง  หรือ  PM อยู่ในเขตที่ตัวเองรับผิดชอบ
+        if (pm.assigned_to === currentUser.id) return true;
         var dp = delivered.find(function(d){ return d.sn===pm.sn; });
         return dp && myCusts.includes(dp.customer_id);
       });
@@ -3423,10 +3422,16 @@
     body.innerHTML = '';
 
     if (!list || list.length === 0) {
+      var cuEng = DB.getCurrentUser();
+      var zoneHint = '';
+      if (cuEng.role === 'engineer') {
+        zoneHint = '<div style="font-size:.78rem;margin-top:8px;color:var(--primary);">คุณเห็นเฉพาะ PM ในเขต <strong>' + (cuEng.zone||'-') + '</strong> หรือที่มอบหมายให้คุณ — หากเครื่องอยู่เขตอื่น PM จะแสดงกับวิศวกรเขตนั้น</div>';
+      }
       body.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:40px;">' +
         '<div style="font-size:2rem;margin-bottom:8px;">📅</div>' +
         '<div style="font-weight:600;">ไม่มีแผน PM ในเดือนนี้</div>' +
-        '<div style="font-size:.8rem;margin-top:4px;">ลองเปลี่ยนเดือน หรือตรวจสอบรอบ PM ของเครื่องที่ส่งมอบ</div>' +
+        '<div style="font-size:.8rem;margin-top:4px;">ลองเปลี่ยนเดือน หรือดูกล่อง "PM ที่กำลังจะถึง" ด้านบน</div>' +
+        zoneHint +
         '</td></tr>';
       lucide.createIcons();
       return;
