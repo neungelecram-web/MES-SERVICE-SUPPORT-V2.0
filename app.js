@@ -3180,14 +3180,20 @@
   };
 
   // หาวิศวกรประจำเขตของ SN (ใช้ได้ทุก scope)
+  // เชื่อมผ่าน sales_zones: customer.zone (อาจเป็น ZONE001 หรือ "South") → engineer_id
   function zoneEngineerForSn(sn) {
     var dp = DB.find('delivered_products','sn',sn);
     if (!dp) return '';
     var cust = DB.find('customers','id',dp.customer_id);
     if (!cust || !cust.zone) return '';
+    var zones = DB.getAll('sales_zones');
+    // 1) จับคู่ customer.zone กับ sales_zones (ตรง id หรือ ชื่อ) → ใช้ engineer_id
+    var z = zones.find(function(zz){ return zz.id === cust.zone || zz.name === cust.zone; });
+    if (z && z.engineer_id) return z.engineer_id;
+    // 2) สำรอง: หาวิศวกรที่ zone string ตรงกับ customer.zone ตรงๆ
     var zoneEng = DB.getAll('users').find(function(u){ return u.role==='engineer' && u.zone===cust.zone; });
     if (zoneEng) return zoneEng.id;
-    var zones = DB.getAll('sales_zones');
+    // 3) สำรอง: หาจาก province ใน sales_zones
     for (var i=0;i<zones.length;i++) {
       if (zones[i].provinces && zones[i].provinces.indexOf(cust.province) !== -1 && zones[i].engineer_id) {
         return zones[i].engineer_id;
@@ -3218,7 +3224,15 @@
     var delivered  = DB.getAll('delivered_products');
     var all = DB.getAll('pm_jobs');
     if (isEngineer) {
-      var myCusts = DB.getAll('customers').filter(function(c){ return c.zone===currentUser.zone; }).map(function(c){ return c.id; });
+      var zones = DB.getAll('sales_zones');
+      var customers = DB.getAll('customers');
+      // เขตที่วิศวกรคนนี้รับผิดชอบ (เป็น engineer_id ใน sales_zones)
+      var myZoneIds = zones.filter(function(z){ return z.engineer_id === currentUser.id; }).map(function(z){ return z.id; });
+      var myZoneNames = zones.filter(function(z){ return z.engineer_id === currentUser.id; }).map(function(z){ return z.name; });
+      // ลูกค้าในเขตที่รับผิดชอบ (เทียบทั้ง zone id, zone name, และ user.zone string)
+      var myCusts = customers.filter(function(c){
+        return myZoneIds.includes(c.zone) || myZoneNames.includes(c.zone) || c.zone === currentUser.zone;
+      }).map(function(c){ return c.id; });
       all = all.filter(function(pm){
         // เห็นถ้า: PM ถูก assign ให้ตัวเอง  หรือ  PM อยู่ในเขตที่ตัวเองรับผิดชอบ
         if (pm.assigned_to === currentUser.id) return true;
